@@ -638,6 +638,70 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ── Shopify OAuth: inicio ──
+    if (pathname === '/auth/shopify') {
+      const shop      = (query.shop || 'bu18yq-dk').replace('.myshopify.com', '');
+      const clientId  = process.env.SHOPIFY_CLIENT_ID || '';
+      const redirect  = `https://${req.headers.host}/auth/callback`;
+      const state     = Math.random().toString(36).slice(2);
+      const scopes    = 'read_orders,read_products';
+      const authUrl   = `https://${shop}.myshopify.com/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirect)}&state=${state}`;
+      res.writeHead(302, { Location: authUrl });
+      res.end();
+      return;
+    }
+
+    // ── Shopify OAuth: callback ──
+    if (pathname === '/auth/callback') {
+      const { code, shop } = query;
+      const clientId     = process.env.SHOPIFY_CLIENT_ID     || '';
+      const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || '';
+
+      if (!code || !shop) {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end('<h2>Error: faltan parámetros code o shop</h2>');
+        return;
+      }
+
+      const body = JSON.stringify({ client_id: clientId, client_secret: clientSecret, code });
+      let tokenRes;
+      try {
+        tokenRes = await apiRequest({
+          hostname: shop,
+          path: '/admin/oauth/access_token',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }, body);
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<h2>Error al obtener token: ${e.message}</h2>`);
+        return;
+      }
+
+      const token = tokenRes.body.access_token;
+      if (!token) {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<h2>Error: ${JSON.stringify(tokenRes.body)}</h2>`);
+        return;
+      }
+
+      const storeName = shop.replace('.myshopify.com', '');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`<!DOCTYPE html><html><head><meta charset=utf-8>
+        <style>body{font-family:sans-serif;max-width:700px;margin:60px auto;padding:20px;background:#0d1117;color:#e6edf3}
+        h2{color:#3fb950}code{background:#21262d;padding:12px 16px;display:block;border-radius:8px;font-size:15px;word-break:break-all;margin:16px 0;color:#79c0ff}
+        p{color:#8b949e}.label{color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:1px}</style></head>
+        <body>
+        <h2>Token obtenido con éxito</h2>
+        <p class=label>Tienda</p><code>${storeName}.myshopify.com</code>
+        <p class=label>Variable de entorno que necesitás cargar en Railway</p>
+        <code>TIENDA1_SHOPIFY_STORE = ${storeName}</code>
+        <code>TIENDA1_SHOPIFY_ACCESS_TOKEN = ${token}</code>
+        <p>Copiá estos dos valores y cargalos en Railway → Variables. Luego avisame.</p>
+        </body></html>`);
+      return;
+    }
+
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
 
