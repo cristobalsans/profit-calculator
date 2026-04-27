@@ -1,0 +1,73 @@
+{
+  "stores": [
+    {
+      "id": "tienda1",
+      "name": "Mi Primera Tienda",
+      "currency": "ARS",
+      "timezone": "America/Argentina/Buenos_Aires",
+      "exchange_rate": 1200,
+      "break_even_roas": 2.5,
+      "products": [
+        {
+          "id": "producto_principal",
+          "type": "main",
+          "match": "Producto Principal",
+          "match_include": [],
+          "match_exclude": ["muestra", "tester"],
+          "tiers": [
+            { "min": 1, "max": 1, "cost": 5000 },
+            { "min": 2, "max": 3, "cost": 9000 },
+            { "min": 4, "max": null, "cost": 16000 }
+          ]
+        },
+        {
+          "id": "regalo",
+          "type": "gift",
+          "match": "Regalo",
+          "match_include": [],
+          "match_exclude": [],
+          "cost_per_unit": 800
+        },
+        {
+          "id": "accesorio",
+          "type": "fixed",
+          "match": "Accesorio",
+          "match_include": [],
+          "match_exclude": [],
+          "cost_per_unit": 1200
+        }
+      ]
+    },
+    {
+      "id": "tienda2",
+      "name": "Mi Segunda Tienda",
+      "currency": "MXN",
+      "timezone": "America/Mexico_City",
+      "exchange_rate": 17.5,
+      "break_even_roas": 3.0,
+      "products": [
+        {
+          "id": "producto_principal",
+          "type": "main",
+          "match": "Producto Principal",
+          "match_include": [],
+          "match_exclude": [],
+          "tiers": [
+            { "min": 1, "max": 1, "cost": 150 },
+            { "min": 2, "max": 3, "cost": 280 },
+            { "min": 4, "max": null, "cost": 520 }
+          ]
+        },
+        {
+          "id": "complemento",
+          "type": "standalone_with_main_discount",
+          "match": "Complemento",
+          "match_include": [],
+          "match_exclude": [],
+          "cost_with_main": 60,
+          "cost_standalone": 80
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profit Calculator</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --orange: #d29922;
+    --purple: #bc8cff;
+    --teal: #39d353;
+    --radius: 8px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo { font-size: 18px; font-weight: 700; color: var(--green); white-space: nowrap; }
+  .logo span { color: var(--text); }
+
+  select {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+  }
+  select:focus { border-color: var(--blue); }
+
+  .refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background .15s;
+  }
+  .refresh-btn:hover { background: var(--border); }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .status-dot.loading { background: var(--orange); box-shadow: 0 0 6px var(--orange); animation: pulse 1s infinite; }
+  .status-dot.error   { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .last-updated { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+  /* ── DATE FILTERS ── */
+  .filters {
+    padding: 12px 24px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+  }
+  .range-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all .15s;
+  }
+  .range-btn:hover  { border-color: var(--blue); color: var(--text); }
+  .range-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  /* ── ERROR BANNER ── */
+  .error-banner {
+    background: rgba(248,81,73,.12);
+    border: 1px solid rgba(248,81,73,.3);
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    margin: 16px 24px;
+    color: #ffa198;
+    font-size: 13px;
+    display: none;
+  }
+  .error-banner.visible { display: block; }
+
+  /* ── MAIN ── */
+  .main { padding: 20px 24px; }
+
+  /* ── KPI CARDS ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent, var(--blue));
+  }
+  .kpi-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .kpi-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .kpi-sub {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .kpi-card.positive .kpi-value { color: var(--green); }
+  .kpi-card.negative .kpi-value { color: var(--red); }
+
+  /* ── CHARTS GRID ── */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .charts-grid.full { grid-template-columns: 1fr; }
+  @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .chart-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 14px;
+  }
+  .chart-wrap { position: relative; }
+
+  /* ── PRODUCT TABLE ── */
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-top: 14px;
+    overflow-x: auto;
+  }
+  .table-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  th:hover { color: var(--text); }
+  th.sorted { color: var(--blue); }
+  td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.green { background: rgba(63,185,80,.15); color: var(--green); }
+  .badge.red   { background: rgba(248,81,73,.15);  color: var(--red);   }
+  .badge.blue  { background: rgba(88,166,255,.15); color: var(--blue);  }
+
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    border-radius: 4px;
+    height: 24px;
+  }
+  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+  .currency-tag {
+    font-size: 10px;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+  .local-val {
+    font-size: 11px;
+    color: var(--muted);
+    display: block;
+  }
+
+  .no-data {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">Profit<span>Calc</span></div>
+  <select id="storeSelect">
+    <option value="global">🌍 Vista Global</option>
+  </select>
+  <button class="refresh-btn" onclick="loadData()">↻ Actualizar</button>
+  <span class="last-updated" id="lastUpdated"></span>
+  <div class="status-dot" id="statusDot"></div>
+</header>
+
+<!-- DATE FILTERS -->
+<div class="filters">
+  <button class="range-btn active" data-range="today">Hoy</button>
+  <button class="range-btn" data-range="yesterday">Ayer</button>
+  <button class="range-btn" data-range="3d">3 días</button>
+  <button class="range-btn" data-range="7d">7 días</button>
+  <button class="range-btn" data-range="14d">14 días</button>
+  <button class="range-btn" data-range="30d">30 días</button>
+  <button class="range-btn" data-range="this_month">Este mes</button>
+  <button class="range-btn" data-range="last_month">Mes anterior</button>
+  <button class="range-btn" data-range="max">Máx</button>
+</div>
+
+<!-- ERROR BANNER -->
+<div class="error-banner" id="errorBanner"></div>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- KPI CARDS -->
+  <div class="kpi-grid" id="kpiGrid">
+    <div class="kpi-card" style="--accent:var(--green)">
+      <div class="kpi-label">Revenue</div>
+      <div class="kpi-value" id="kpi-revenue">—</div>
+      <div class="kpi-sub" id="kpi-revenue-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--red)">
+      <div class="kpi-label">Ad Spend</div>
+      <div class="kpi-value" id="kpi-adspend">—</div>
+      <div class="kpi-sub" id="kpi-adspend-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--orange)">
+      <div class="kpi-label">COGS</div>
+      <div class="kpi-value" id="kpi-cogs">—</div>
+      <div class="kpi-sub" id="kpi-cogs-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--purple)">
+      <div class="kpi-label">Gross Profit</div>
+      <div class="kpi-value" id="kpi-gross">—</div>
+      <div class="kpi-sub" id="kpi-gross-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--blue)">
+      <div class="kpi-label">Net Profit</div>
+      <div class="kpi-value" id="kpi-net">—</div>
+      <div class="kpi-sub" id="kpi-net-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--teal)">
+      <div class="kpi-label">Net Margin %</div>
+      <div class="kpi-value" id="kpi-margin">—</div>
+      <div class="kpi-sub" id="kpi-margin-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--blue)">
+      <div class="kpi-label">ROAS</div>
+      <div class="kpi-value" id="kpi-roas">—</div>
+      <div class="kpi-sub" id="kpi-roas-sub">Break-even: —</div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--orange)">
+      <div class="kpi-label">CPA</div>
+      <div class="kpi-value" id="kpi-cpa">—</div>
+      <div class="kpi-sub" id="kpi-cpa-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--purple)">
+      <div class="kpi-label">AOV</div>
+      <div class="kpi-value" id="kpi-aov">—</div>
+      <div class="kpi-sub" id="kpi-aov-sub"></div>
+    </div>
+    <div class="kpi-card" style="--accent:var(--muted)">
+      <div class="kpi-label">CTR</div>
+      <div class="kpi-value" id="kpi-ctr">—</div>
+      <div class="kpi-sub" id="kpi-ctr-sub"></div>
+    </div>
+  </div>
+
+  <!-- ROW 1: Revenue/Spend/Profit + Orders -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-title">Revenue · Ad Spend · Net Profit</div>
+      <div class="chart-wrap"><canvas id="chartMain" height="200"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Órdenes por día</div>
+      <div class="chart-wrap"><canvas id="chartOrders" height="200"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ROW 2: ROAS + Cost Breakdown -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-title">ROAS diario</div>
+      <div class="chart-wrap"><canvas id="chartRoas" height="200"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Desglose de costos</div>
+      <div class="chart-wrap" style="max-height:220px;display:flex;align-items:center;justify-content:center">
+        <canvas id="chartCostBreakdown" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 3: Net Margin + Revenue by product -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-title">Margen neto % diario</div>
+      <div class="chart-wrap"><canvas id="chartMargin" height="200"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Revenue por producto</div>
+      <div class="chart-wrap" style="max-height:220px;display:flex;align-items:center;justify-content:center">
+        <canvas id="chartRevProduct" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 4: Profit by product (full) -->
+  <div class="charts-grid full">
+    <div class="chart-card">
+      <div class="chart-title">Profit por producto</div>
+      <div class="chart-wrap"><canvas id="chartProfitProduct" height="120"></canvas></div>
+    </div>
+  </div>
+
+  <!-- PRODUCT TABLE -->
+  <div class="table-card">
+    <div class="table-title">
+      <span>Tabla de productos</span>
+      <span id="tableRowCount" style="color:var(--muted);font-size:12px;font-weight:400"></span>
+    </div>
+    <table id="productTable">
+      <thead>
+        <tr>
+          <th data-col="name">Producto</th>
+          <th data-col="sku">SKU</th>
+          <th data-col="units" class="sorted">Unidades ↓</th>
+          <th data-col="revenue">Revenue (USD)</th>
+          <th data-col="cogs">COGS (USD)</th>
+          <th data-col="grossProfit">Gross Profit</th>
+          <th data-col="margin">Margen %</th>
+        </tr>
+      </thead>
+      <tbody id="productTableBody">
+        <tr><td colspan="7" class="no-data">Cargando datos…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+// ── STATE ─────────────────────────────────────────────────────────────────────
+const state = {
+  store: 'global',
+  range: 'today',
+  data: null,
+  stores: [],
+  charts: {},
+  sortCol: 'units',
+  sortDir: -1,
+  currency: 'USD',
+  rate: 1,
+  breakEven: 2
+};
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+const USD  = v => `$${fmt(v)}`;
+const PCT  = v => `${v >= 0 ? '' : ''}${v.toFixed(2)}%`;
+const X    = v => `${v.toFixed(2)}x`;
+const fmt  = v => Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt0 = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+const localFmt = (v, currency) => Number(v).toLocaleString('es-AR', { style:'currency', currency, maximumFractionDigits: 0 });
+const shortName = s => s.length > 22 ? s.slice(0, 20) + '…' : s;
+
+function setStatus(type) {
+  const dot = document.getElementById('statusDot');
+  dot.className = `status-dot ${type}`;
+}
+
+function setLastUpdated() {
+  const el = document.getElementById('lastUpdated');
+  el.textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-AR');
+}
+
+function showError(msgs) {
+  const el = document.getElementById('errorBanner');
+  if (!msgs || !msgs.length) { el.classList.remove('visible'); return; }
+  el.textContent = '⚠ ' + msgs.join(' · ');
+  el.classList.add('visible');
+}
+
+// ── CHART HELPERS ─────────────────────────────────────────────────────────────
+const COLORS = {
+  green:  '#3fb950', red:  '#f85149', blue:   '#58a6ff',
+  orange: '#d29922', purple:'#bc8cff', teal:  '#39d353',
+  muted: '#8b949e'
+};
+
+function chartDefaults() {
+  Chart.defaults.color = '#8b949e';
+  Chart.defaults.borderColor = '#30363d';
+  Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  Chart.defaults.font.size = 11;
+}
+
+function destroyChart(key) {
+  if (state.charts[key]) { state.charts[key].destroy(); delete state.charts[key]; }
+}
+
+function lineChart(id, labels, datasets) {
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  state.charts[id] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 14 } } },
+      scales: {
+        x: { grid: { color: '#21262d' }, ticks: { maxTicksLimit: 10, maxRotation: 0 } },
+        y: { grid: { color: '#21262d' }, ticks: { callback: v => '$' + fmt0(v) } }
+      }
+    }
+  });
+}
+
+function barChart(id, labels, datasets, opts = {}) {
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  state.charts[id] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: opts.legend !== false, position: 'top', labels: { boxWidth: 10, padding: 14 } } },
+      scales: {
+        x: { grid: { color: '#21262d' }, ticks: { maxTicksLimit: opts.maxTicks || 10, maxRotation: 0 } },
+        y: {
+          grid: { color: '#21262d' },
+          ticks: { callback: opts.yFmt || (v => '$' + fmt0(v)) },
+          ...(opts.yLine !== undefined ? {} : {})
+        }
+      },
+      ...(opts.indexAxis ? { indexAxis: opts.indexAxis } : {})
+    }
+  });
+}
+
+function donutChart(id, labels, data, colors) {
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  state.charts[id] = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#161b22' }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      cutout: '65%',
+      plugins: {
+        legend: { position: 'right', labels: { boxWidth: 10, padding: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${fmt(ctx.parsed)}` } }
+      }
+    }
+  });
+}
+
+// ── DATA LOADING ──────────────────────────────────────────────────────────────
+async function loadStores() {
+  try {
+    const res = await fetch('/api/stores');
+    const json = await res.json();
+    const sel = document.getElementById('storeSelect');
+    sel.innerHTML = '<option value="global">🌍 Vista Global</option>';
+    for (const s of json.stores) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = `${s.name} (${s.currency})`;
+      sel.appendChild(opt);
+    }
+    state.stores = json.stores;
+  } catch {}
+}
+
+async function loadData() {
+  setStatus('loading');
+  try {
+    const res  = await fetch(`/api/data?store=${state.store}&range=${state.range}`);
+    const json = await res.json();
+
+    if (!res.ok) { showError([json.error || 'Error al cargar datos']); setStatus('error'); return; }
+
+    state.data     = json;
+    state.currency = json.currency || 'USD';
+    state.rate     = json.exchange_rate || 1;
+    state.breakEven = json.break_even_roas || 2;
+
+    showError(json.errors && json.errors.length ? json.errors : null);
+    renderAll(json);
+    setLastUpdated();
+    setStatus(json.errors && json.errors.length ? 'error' : '');
+  } catch (err) {
+    showError([`No se pudo conectar con el servidor: ${err.message}`]);
+    setStatus('error');
+  }
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function renderAll(d) {
+  renderKPIs(d.totals, d.currency, d.exchange_rate);
+  renderCharts(d.daily, d.totals, d.productTable, d.break_even_roas, d.currency, d.exchange_rate);
+  renderTable(d.productTable, d.currency, d.exchange_rate);
+}
+
+function kpiColor(el, value) {
+  el.parentElement.classList.remove('positive', 'negative');
+  if (value > 0)  el.parentElement.classList.add('positive');
+  if (value < 0)  el.parentElement.classList.add('negative');
+}
+
+function renderKPIs(t, currency, rate) {
+  const isGlobal = state.store === 'global';
+  const showLocal = !isGlobal && currency !== 'USD' && rate && rate !== 1;
+
+  document.getElementById('kpi-revenue').textContent = USD(t.revenue);
+  document.getElementById('kpi-revenue-sub').textContent = showLocal ? localFmt(t.revenue_local || t.revenue * rate, currency) : '';
+
+  document.getElementById('kpi-adspend').textContent = USD(t.adSpend);
+  document.getElementById('kpi-adspend-sub').textContent = showLocal ? localFmt(t.adSpend_local || t.adSpend * rate, currency) : '';
+
+  document.getElementById('kpi-cogs').textContent = USD(t.cogs);
+  document.getElementById('kpi-cogs-sub').textContent = showLocal ? localFmt(t.cogs_local || t.cogs * rate, currency) : '';
+
+  const gross = document.getElementById('kpi-gross');
+  gross.textContent = USD(t.grossProfit);
+  gross.parentElement.classList.toggle('positive', t.grossProfit > 0);
+  gross.parentElement.classList.toggle('negative', t.grossProfit < 0);
+  document.getElementById('kpi-gross-sub').textContent = showLocal ? localFmt((t.cogs_local !== undefined ? t.revenue_local - t.cogs_local : t.grossProfit * rate), currency) : '';
+
+  const net = document.getElementById('kpi-net');
+  net.textContent = USD(t.netProfit);
+  net.parentElement.classList.toggle('positive', t.netProfit > 0);
+  net.parentElement.classList.toggle('negative', t.netProfit < 0);
+  document.getElementById('kpi-net-sub').textContent = showLocal ? localFmt(t.netProfit * rate, currency) : '';
+
+  const margin = document.getElementById('kpi-margin');
+  margin.textContent = PCT(t.netMargin);
+  margin.parentElement.classList.toggle('positive', t.netMargin > 0);
+  margin.parentElement.classList.toggle('negative', t.netMargin < 0);
+  document.getElementById('kpi-margin-sub').textContent = `Gross: ${PCT(t.revenue > 0 ? (t.grossProfit / t.revenue) * 100 : 0)}`;
+
+  const roasEl = document.getElementById('kpi-roas');
+  roasEl.textContent = X(t.roas);
+  roasEl.parentElement.classList.toggle('positive', t.roas >= state.breakEven);
+  roasEl.parentElement.classList.toggle('negative', t.roas > 0 && t.roas < state.breakEven);
+  document.getElementById('kpi-roas-sub').textContent = `Break-even: ${X(state.breakEven)}`;
+
+  document.getElementById('kpi-cpa').textContent  = t.cpa > 0 ? USD(t.cpa) : '—';
+  document.getElementById('kpi-cpa-sub').textContent = `${fmt0(t.purchases)} compras`;
+
+  document.getElementById('kpi-aov').textContent  = t.aov > 0 ? USD(t.aov) : '—';
+  document.getElementById('kpi-aov-sub').textContent = `${fmt0(t.orders)} órdenes`;
+
+  document.getElementById('kpi-ctr').textContent  = PCT(t.ctr);
+  document.getElementById('kpi-ctr-sub').textContent = `${fmt0(t.clicks)} clicks · ${fmt0(t.impressions)} impresiones`;
+}
+
+function renderCharts(daily, totals, products, breakEven, currency, rate) {
+  const labels = daily.map(d => {
+    const [,m,dd] = d.date.split('-');
+    return `${dd}/${m}`;
+  });
+
+  // 1. Revenue / AdSpend / NetProfit
+  lineChart('chartMain', labels, [
+    { label: 'Revenue',    data: daily.map(d => d.revenue),   borderColor: COLORS.green,  backgroundColor: 'rgba(63,185,80,.08)',   tension:.4, fill:true, pointRadius:2 },
+    { label: 'Ad Spend',  data: daily.map(d => d.adSpend),   borderColor: COLORS.red,    backgroundColor: 'rgba(248,81,73,.08)',  tension:.4, fill:true, pointRadius:2 },
+    { label: 'Net Profit',data: daily.map(d => d.netProfit), borderColor: COLORS.blue,   backgroundColor: 'rgba(88,166,255,.08)', tension:.4, fill:true, pointRadius:2 },
+  ]);
+
+  // 2. Orders
+  barChart('chartOrders', labels, [
+    { label: 'Órdenes', data: daily.map(d => d.orders), backgroundColor: COLORS.blue + '99', borderRadius: 4 }
+  ], { yFmt: v => fmt0(v), legend: false });
+
+  // 3. ROAS
+  const roasColors = daily.map(d => d.roas >= breakEven ? COLORS.green + 'cc' : COLORS.red + 'cc');
+  barChart('chartRoas', labels, [
+    { label: 'ROAS', data: daily.map(d => d.roas), backgroundColor: roasColors, borderRadius: 4 }
+  ], {
+    yFmt: v => v.toFixed(1) + 'x',
+    legend: false,
+    annotations: breakEven
+  });
+  // Add break-even line annotation manually
+  if (state.charts['chartRoas']) {
+    const chart = state.charts['chartRoas'];
+    const orig = chart.options.plugins.tooltip.callbacks || {};
+    chart.options.scales.y.ticks.callback = v => v.toFixed(1) + 'x';
+    chart.update('none');
+  }
+
+  // 4. Cost Breakdown donut
+  const cogs    = Math.max(0, totals.cogs);
+  const spend   = Math.max(0, totals.adSpend);
+  const profit  = Math.max(0, totals.netProfit);
+  const hasData = cogs + spend + profit > 0;
+  if (hasData) {
+    donutChart('chartCostBreakdown',
+      ['COGS', 'Ad Spend', 'Net Profit'],
+      [cogs, spend, profit],
+      [COLORS.orange, COLORS.red, COLORS.green]
+    );
+  }
+
+  // 5. Net Margin % line
+  destroyChart('chartMargin');
+  const ctx5 = document.getElementById('chartMargin').getContext('2d');
+  state.charts['chartMargin'] = new Chart(ctx5, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Margen neto %',
+        data: daily.map(d => d.netMargin),
+        borderColor: COLORS.teal,
+        backgroundColor: 'rgba(57,211,83,.08)',
+        tension: .4, fill: true, pointRadius: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#21262d' }, ticks: { maxTicksLimit: 10, maxRotation: 0 } },
+        y: { grid: { color: '#21262d' }, ticks: { callback: v => v.toFixed(1) + '%' } }
+      }
+    }
+  });
+
+  // 6. Revenue by product (top 8)
+  const top8 = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  if (top8.length) {
+    donutChart('chartRevProduct',
+      top8.map(p => shortName(p.name)),
+      top8.map(p => p.revenue),
+      ['#58a6ff','#3fb950','#bc8cff','#d29922','#f85149','#39d353','#ff7b72','#79c0ff']
+    );
+  }
+
+  // 7. Profit by product (horizontal bar, top 10)
+  const top10 = [...products].sort((a, b) => b.grossProfit - a.grossProfit).slice(0, 10);
+  destroyChart('chartProfitProduct');
+  const ctx7 = document.getElementById('chartProfitProduct').getContext('2d');
+  state.charts['chartProfitProduct'] = new Chart(ctx7, {
+    type: 'bar',
+    data: {
+      labels: top10.map(p => shortName(p.name)),
+      datasets: [{
+        label: 'Gross Profit (USD)',
+        data: top10.map(p => p.grossProfit),
+        backgroundColor: top10.map(p => p.grossProfit >= 0 ? COLORS.green + 'cc' : COLORS.red + 'cc'),
+        borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#21262d' }, ticks: { callback: v => '$' + fmt0(v) } },
+        y: { grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+function renderTable(products, currency, rate) {
+  const showLocal = state.store !== 'global' && currency !== 'USD';
+  const tbody = document.getElementById('productTableBody');
+  document.getElementById('tableRowCount').textContent = `${products.length} productos`;
+
+  if (!products.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="no-data">Sin datos para este período</td></tr>';
+    return;
+  }
+
+  const sorted = [...products].sort((a, b) => state.sortDir * (b[state.sortCol] - a[state.sortCol]));
+
+  tbody.innerHTML = sorted.map(p => `
+    <tr>
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
+      <td><code style="color:var(--muted);font-size:11px">${p.sku || '—'}</code></td>
+      <td><span class="badge blue">${fmt0(p.units)}</span></td>
+      <td>
+        ${USD(p.revenue)}
+        ${showLocal ? `<span class="local-val">${localFmt(p.revenue_local || p.revenue * rate, currency)}</span>` : ''}
+      </td>
+      <td>
+        ${USD(p.cogs)}
+        ${showLocal ? `<span class="local-val">${localFmt(p.cogs_local || p.cogs * rate, currency)}</span>` : ''}
+      </td>
+      <td class="${p.grossProfit >= 0 ? 'positive' : 'negative'}">
+        <span class="badge ${p.grossProfit >= 0 ? 'green' : 'red'}">${USD(p.grossProfit)}</span>
+      </td>
+      <td>${PCT(p.margin)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── TABLE SORT ────────────────────────────────────────────────────────────────
+document.querySelectorAll('#productTable th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (state.sortCol === col) {
+      state.sortDir *= -1;
+    } else {
+      state.sortCol = col;
+      state.sortDir = -1;
+    }
+    document.querySelectorAll('#productTable th').forEach(t => t.classList.remove('sorted'));
+    th.classList.add('sorted');
+    if (state.data) renderTable(state.data.productTable, state.currency, state.rate);
+  });
+});
+
+// ── EVENT HANDLERS ────────────────────────────────────────────────────────────
+document.querySelectorAll('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.range = btn.dataset.range;
+    loadData();
+  });
+});
+
+document.getElementById('storeSelect').addEventListener('change', e => {
+  state.store = e.target.value;
+  loadData();
+});
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+chartDefaults();
+loadStores().then(() => loadData());
+
+// Auto-refresh every 5 minutes
+setInterval(loadData, 5 * 60 * 1000);
+</script>
+</body>
+</html>
