@@ -442,51 +442,85 @@
   const host   = params.get('host');
   if (!shop || !host) return;
 
-  // Load App Bridge if not already present
-  if (!window.shopify) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
-      s.setAttribute('data-api-key', '20b58900b8ba550dcd8cd21b7b9794e4');
-      s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
-    });
-    await new Promise(r => setTimeout(r, 600));
-  }
-
-  if (!window.shopify) return;
+  // Create visible status bar
+  const bar = document.createElement('div');
+  bar.id = 'tx-bar';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#1158c7;color:#fff;padding:10px 20px;z-index:9999;font-size:13px;font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;';
+  const setStatus = (msg, color) => {
+    bar.style.background = color || '#1158c7';
+    bar.innerHTML = msg + '<button onclick="document.getElementById(\'tx-bar\').remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button>';
+  };
+  document.body.prepend(bar);
 
   try {
-    const idToken = await window.shopify.idToken();
-    const resp = await fetch('/auth/token-exchange', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shop, idToken })
-    });
+    setStatus('🔄 Conectando con Shopify... (cargando App Bridge)');
 
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.token) {
-        // Show token banner so user can copy it to Railway
-        const banner = document.createElement('div');
-        banner.style.cssText = `
-          position:fixed;top:0;left:0;right:0;background:#1a7f37;color:#fff;
-          padding:14px 20px;z-index:9999;font-size:12px;font-family:monospace;
-          box-shadow:0 2px 8px rgba(0,0,0,.4);`;
-        banner.innerHTML = `
-          ✅ <strong>Token Shopify obtenido.</strong> Copia estas dos líneas en Railway → Variables:<br>
-          <span style="background:#0d5c27;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:6px">
-            TIENDA1_SHOPIFY_STORE = ${data.shop} &nbsp;|&nbsp;
-            TIENDA1_SHOPIFY_ACCESS_TOKEN = ${data.token}
-          </span>
-          <button onclick="this.parentElement.remove()" style="float:right;background:none;border:1px solid #fff;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer">×</button>`;
-        document.body.prepend(banner);
-        // Reload data now that we have the token
-        loadData();
-      }
+    if (!window.shopify) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
+        s.setAttribute('data-api-key', '20b58900b8ba550dcd8cd21b7b9794e4');
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('No se pudo cargar App Bridge desde Shopify CDN'));
+        document.head.appendChild(s);
+      });
+      await new Promise(r => setTimeout(r, 800));
     }
+
+    if (!window.shopify) {
+      setStatus('⚠️ App Bridge cargó pero window.shopify no está disponible. Abre el dashboard desde Shopify Admin → Apps.', '#9a5700');
+      return;
+    }
+
+    setStatus('🔑 Obteniendo ID token de Shopify...');
+    let idToken;
+    try {
+      idToken = await window.shopify.idToken();
+    } catch (e) {
+      setStatus('❌ Error al obtener ID token: ' + e.message + ' — Asegúrate de abrir desde Shopify Admin → Apps.', '#b91c1c');
+      return;
+    }
+
+    if (!idToken) {
+      setStatus('❌ idToken() devolvió vacío. Intenta recargar desde Shopify Admin.', '#b91c1c');
+      return;
+    }
+
+    setStatus('🔄 Intercambiando token con el servidor...');
+    let resp, data;
+    try {
+      resp = await fetch('/auth/token-exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shop, idToken })
+      });
+      data = await resp.json();
+    } catch (e) {
+      setStatus('❌ Error de red al contactar el servidor: ' + e.message, '#b91c1c');
+      return;
+    }
+
+    if (!resp.ok || !data.token) {
+      const errMsg = data.error || data.message || JSON.stringify(data);
+      setStatus('❌ Servidor rechazó el token: ' + errMsg + ' (HTTP ' + resp.status + ')', '#b91c1c');
+      return;
+    }
+
+    // SUCCESS
+    bar.style.background = '#1a7f37';
+    bar.innerHTML = `
+      ✅ <strong>Token obtenido.</strong> Agrega estas variables en Railway → Variables:
+      <span style="background:#0d5c27;padding:3px 8px;border-radius:4px;margin-left:10px">
+        TIENDA1_SHOPIFY_STORE = ${data.shop}
+      </span>
+      <span style="background:#0d5c27;padding:3px 8px;border-radius:4px;margin-left:6px">
+        TIENDA1_SHOPIFY_ACCESS_TOKEN = ${data.token}
+      </span>
+      <button onclick="document.getElementById('tx-bar').remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button>`;
+    loadData();
+
   } catch (e) {
-    console.log('Token exchange:', e.message);
+    setStatus('❌ Error inesperado: ' + e.message, '#b91c1c');
   }
 })();
 
