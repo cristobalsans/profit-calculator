@@ -205,7 +205,7 @@ function calcOrderCOGS(order, storeConfig) {
 
 async function fetchShopifyOrders(storeId, start, end) {
   const store = env(storeId, 'SHOPIFY_STORE');
-  const token = env(storeId, 'SHOPIFY_ACCESS_TOKEN');
+  const token = tokenStore[store] || env(storeId, 'SHOPIFY_ACCESS_TOKEN');
 
   if (!store || !token) {
     return { orders: [], error: `Shopify no configurado (falta ${storeId.toUpperCase()}_SHOPIFY_STORE o _ACCESS_TOKEN)` };
@@ -547,7 +547,24 @@ async function buildGlobalData(range) {
   };
 }
 
+// ── TOKEN STORE (in-memory, survives restarts via env vars) ──────────────────
+const tokenStore = {}; // shop → access_token
+
+function getShopifyToken(storeId) {
+  const store = env(storeId, 'SHOPIFY_STORE');
+  return tokenStore[store] || env(storeId, 'SHOPIFY_ACCESS_TOKEN');
+}
+
 // ── HTTP SERVER ───────────────────────────────────────────────────────────────
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
+    req.on('error', reject);
+  });
+}
 
 const server = http.createServer(async (req, res) => {
   const parsed   = new URL(req.url, 'http://localhost');
@@ -555,7 +572,8 @@ const server = http.createServer(async (req, res) => {
   const query    = Object.fromEntries(parsed.searchParams);
 
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -635,6 +653,62 @@ const server = http.createServer(async (req, res) => {
         productTable: processed.productTable,
         errors:       [shopify.error, meta.error].filter(Boolean)
       }));
+      return;
+    }
+
+    // ── Token Exchange (Dev Dashboard apps) ──
+    if (pathname === '/auth/token-exchange' && req.method === 'POST') {
+      const { shop, idToken } = await readBody(req);
+
+      if (!shop || !idToken) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Faltan shop o idToken' }));
+        return;
+      }
+
+      const clientId     = process.env.SHOPIFY_CLIENT_ID     || '';
+      const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || '';
+
+      const exchangeBody = JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+        subject_token: idToken,
+        subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+        requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token'
+      });
+
+      let tokenRes;
+      try {
+        tokenRes = await apiRequest({
+          hostname: shop,
+          path: '/admin/oauth/access_token',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(exchangeBody) }
+        }, exchangeBody);
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+        return;
+      }
+
+      const token = tokenRes.body.access_token;
+      if (!token) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Token exchange fallido', details: tokenRes.body }));
+        return;
+      }
+
+      const storeName = shop.replace('.myshopify.com', '');
+      tokenStore[storeName] = token;
+
+      console.log(`\n✅ TOKEN SHOPIFY OBTENIDO para ${shop}`);
+      console.log(`   Agrega en Railway → Variables:`);
+      console.log(`   TIENDA1_SHOPIFY_STORE = ${storeName}`);
+      console.log(`   TIENDA1_SHOPIFY_ACCESS_TOKEN = ${token}\n`);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, shop: storeName, token }));
       return;
     }
 

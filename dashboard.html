@@ -435,6 +435,61 @@
 </main>
 
 <script>
+// ── SHOPIFY TOKEN EXCHANGE ────────────────────────────────────────────────────
+(async function tryTokenExchange() {
+  const params = new URLSearchParams(window.location.search);
+  const shop   = params.get('shop');
+  const host   = params.get('host');
+  if (!shop || !host) return;
+
+  // Load App Bridge if not already present
+  if (!window.shopify) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
+      s.setAttribute('data-api-key', '20b58900b8ba550dcd8cd21b7b9794e4');
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    await new Promise(r => setTimeout(r, 600));
+  }
+
+  if (!window.shopify) return;
+
+  try {
+    const idToken = await window.shopify.idToken();
+    const resp = await fetch('/auth/token-exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shop, idToken })
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.token) {
+        // Show token banner so user can copy it to Railway
+        const banner = document.createElement('div');
+        banner.style.cssText = `
+          position:fixed;top:0;left:0;right:0;background:#1a7f37;color:#fff;
+          padding:14px 20px;z-index:9999;font-size:12px;font-family:monospace;
+          box-shadow:0 2px 8px rgba(0,0,0,.4);`;
+        banner.innerHTML = `
+          ✅ <strong>Token Shopify obtenido.</strong> Copia estas dos líneas en Railway → Variables:<br>
+          <span style="background:#0d5c27;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:6px">
+            TIENDA1_SHOPIFY_STORE = ${data.shop} &nbsp;|&nbsp;
+            TIENDA1_SHOPIFY_ACCESS_TOKEN = ${data.token}
+          </span>
+          <button onclick="this.parentElement.remove()" style="float:right;background:none;border:1px solid #fff;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer">×</button>`;
+        document.body.prepend(banner);
+        // Reload data now that we have the token
+        loadData();
+      }
+    }
+  } catch (e) {
+    console.log('Token exchange:', e.message);
+  }
+})();
+
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const state = {
   store: 'global',
