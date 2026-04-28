@@ -656,6 +656,53 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ── Connect Store (manual token) ──
+    if (pathname === '/api/connect-store' && req.method === 'POST') {
+      const { storeId, shopDomain, accessToken } = await readBody(req);
+      if (!storeId || !shopDomain || !accessToken) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Faltan datos: storeId, shopDomain, accessToken' }));
+        return;
+      }
+      const shopName = shopDomain.replace('.myshopify.com', '').replace(/\s/g, '');
+      let validateRes;
+      try {
+        validateRes = await apiRequest({
+          hostname: `${shopName}.myshopify.com`,
+          path: '/admin/api/2024-01/shop.json',
+          method: 'GET',
+          headers: { 'X-Shopify-Access-Token': accessToken }
+        });
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'No se pudo conectar con Shopify: ' + e.message }));
+        return;
+      }
+      if (validateRes.status !== 200 || !validateRes.body.shop) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Token inválido o tienda no encontrada (HTTP ' + validateRes.status + ')' }));
+        return;
+      }
+      const shop = validateRes.body.shop;
+      tokenStore[shopName] = accessToken;
+      const prefix = storeId.toUpperCase().replace(/-/g, '_').replace(/\./g, '_');
+      console.log(`\n✅ TIENDA CONECTADA: ${shop.name} (${shopName})`);
+      console.log(`   Railway → Variables:`);
+      console.log(`   ${prefix}_SHOPIFY_STORE = ${shopName}`);
+      console.log(`   ${prefix}_SHOPIFY_ACCESS_TOKEN = ${accessToken}\n`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        shopName: shop.name,
+        currency: shop.currency,
+        railwayVars: {
+          [`${prefix}_SHOPIFY_STORE`]: shopName,
+          [`${prefix}_SHOPIFY_ACCESS_TOKEN`]: accessToken
+        }
+      }));
+      return;
+    }
+
     // ── Token Exchange (Dev Dashboard apps) ──
     if (pathname === '/auth/token-exchange' && req.method === 'POST') {
       const { shop, idToken } = await readBody(req);

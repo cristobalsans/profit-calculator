@@ -283,9 +283,65 @@
     <option value="global">🌍 Vista Global</option>
   </select>
   <button class="refresh-btn" onclick="loadData()">↻ Actualizar</button>
+  <button class="refresh-btn" id="connectBtn" onclick="openConnect()" style="display:none;border-color:#d29922;color:#d29922">⚙ Conectar Shopify</button>
   <span class="last-updated" id="lastUpdated"></span>
   <div class="status-dot" id="statusDot"></div>
 </header>
+
+<!-- CONNECT MODAL -->
+<div id="connectModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9998;align-items:center;justify-content:center">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:28px;max-width:540px;width:93%;color:#e6edf3;max-height:90vh;overflow-y:auto">
+    <h2 style="margin-bottom:4px;font-size:17px">Conectar Shopify</h2>
+    <p style="color:#8b949e;font-size:13px;margin-bottom:18px">Crea una app personalizada en tu Shopify Admin para obtener un token permanente.</p>
+
+    <div style="background:#21262d;border-radius:8px;padding:16px;margin-bottom:18px;font-size:13px;line-height:1.6">
+      <strong style="color:#58a6ff">Cómo obtener el token (3 minutos):</strong>
+      <ol style="margin:8px 0 0 18px">
+        <li>Entra a tu Shopify Admin → <strong>Configuración</strong></li>
+        <li>Click en <strong>"Apps y canales de venta"</strong></li>
+        <li>Click en <strong>"Desarrollar apps"</strong> (arriba a la derecha)</li>
+        <li>Click en <strong>"Crear una app"</strong> → nombre: <em>Profit Calculator</em></li>
+        <li>Tab <strong>"Configuración de la API Admin"</strong> → activa <code>read_orders</code> y <code>read_products</code> → Guardar</li>
+        <li>Click <strong>"Instalar app"</strong> → tab <strong>"Credenciales de API"</strong></li>
+        <li>Copia el <strong>"Token de acceso de la API de Admin"</strong></li>
+      </ol>
+      <a id="shopifyAdminLink" href="https://admin.shopify.com" target="_blank"
+         style="display:inline-block;margin-top:10px;color:#58a6ff;font-size:12px;text-decoration:none">
+        → Abrir Shopify Admin ↗
+      </a>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">¿Para qué tienda?</label>
+      <select id="connectStoreId" style="width:100%;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:8px 12px;font-size:13px;outline:none"></select>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Dominio de la tienda</label>
+      <input id="connectDomain" type="text" placeholder="mitienda.myshopify.com"
+             style="width:100%;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:8px 12px;font-size:13px;outline:none" />
+    </div>
+
+    <div style="margin-bottom:20px">
+      <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Token de acceso (empieza con shpat_)</label>
+      <input id="connectToken" type="password" placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+             style="width:100%;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:8px 12px;font-size:13px;outline:none;font-family:monospace" />
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button onclick="doConnect()" id="connectSubmit"
+              style="flex:1;background:#238636;border:none;color:#fff;padding:11px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">
+        Conectar →
+      </button>
+      <button onclick="closeConnect()"
+              style="background:#21262d;border:1px solid #30363d;color:#e6edf3;padding:11px 18px;border-radius:6px;cursor:pointer;font-size:14px">
+        Cancelar
+      </button>
+    </div>
+
+    <div id="connectStatus" style="display:none;font-size:13px;border-radius:6px;padding:12px"></div>
+  </div>
+</div>
 
 <!-- DATE FILTERS -->
 <div class="filters">
@@ -435,94 +491,92 @@
 </main>
 
 <script>
-// ── SHOPIFY TOKEN EXCHANGE ────────────────────────────────────────────────────
-(async function tryTokenExchange() {
-  const params = new URLSearchParams(window.location.search);
-  const shop   = params.get('shop');
-  const host   = params.get('host');
-  if (!shop || !host) return;
+// ── CONNECT SHOPIFY MODAL ─────────────────────────────────────────────────────
+function openConnect() {
+  const modal = document.getElementById('connectModal');
+  modal.style.display = 'flex';
+  // Populate store select
+  const sel = document.getElementById('connectStoreId');
+  sel.innerHTML = '';
+  state.stores.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.name + ' (' + s.id + ')';
+    sel.appendChild(opt);
+  });
+  if (!sel.options.length) {
+    const opt = document.createElement('option');
+    opt.value = 'tienda1'; opt.textContent = 'tienda1';
+    sel.appendChild(opt);
+  }
+}
 
-  // Create visible status bar
-  const bar = document.createElement('div');
-  bar.id = 'tx-bar';
-  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#1158c7;color:#fff;padding:10px 20px;z-index:9999;font-size:13px;font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;';
-  const setStatus = (msg, color) => {
-    bar.style.background = color || '#1158c7';
-    bar.innerHTML = msg + '<button onclick="document.getElementById(\'tx-bar\').remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button>';
-  };
-  document.body.prepend(bar);
+function closeConnect() {
+  document.getElementById('connectModal').style.display = 'none';
+  document.getElementById('connectStatus').style.display = 'none';
+}
+
+async function doConnect() {
+  const storeId     = document.getElementById('connectStoreId').value.trim();
+  const shopDomain  = document.getElementById('connectDomain').value.trim();
+  const accessToken = document.getElementById('connectToken').value.trim();
+  const statusEl    = document.getElementById('connectStatus');
+  const btn         = document.getElementById('connectSubmit');
+
+  if (!shopDomain || !accessToken) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#3d1515';
+    statusEl.style.color = '#f85149';
+    statusEl.textContent = 'Completa el dominio y el token antes de continuar.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Verificando...';
+  statusEl.style.display = 'block';
+  statusEl.style.background = '#1c2128';
+  statusEl.style.color = '#8b949e';
+  statusEl.textContent = 'Conectando con Shopify...';
 
   try {
-    setStatus('🔄 Conectando con Shopify... (cargando App Bridge)');
+    const resp = await fetch('/api/connect-store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeId, shopDomain, accessToken })
+    });
+    const data = await resp.json();
 
-    if (!window.shopify) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js';
-        s.setAttribute('data-api-key', '20b58900b8ba550dcd8cd21b7b9794e4');
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('No se pudo cargar App Bridge desde Shopify CDN'));
-        document.head.appendChild(s);
-      });
-      await new Promise(r => setTimeout(r, 800));
-    }
-
-    if (!window.shopify) {
-      setStatus('⚠️ App Bridge cargó pero window.shopify no está disponible. Abre el dashboard desde Shopify Admin → Apps.', '#9a5700');
+    if (!resp.ok || !data.success) {
+      statusEl.style.background = '#3d1515';
+      statusEl.style.color = '#f85149';
+      statusEl.textContent = '❌ ' + (data.error || 'Error desconocido');
+      btn.disabled = false;
+      btn.textContent = 'Conectar →';
       return;
     }
 
-    setStatus('🔑 Obteniendo ID token de Shopify...');
-    let idToken;
-    try {
-      idToken = await window.shopify.idToken();
-    } catch (e) {
-      setStatus('❌ Error al obtener ID token: ' + e.message + ' — Asegúrate de abrir desde Shopify Admin → Apps.', '#b91c1c');
-      return;
-    }
-
-    if (!idToken) {
-      setStatus('❌ idToken() devolvió vacío. Intenta recargar desde Shopify Admin.', '#b91c1c');
-      return;
-    }
-
-    setStatus('🔄 Intercambiando token con el servidor...');
-    let resp, data;
-    try {
-      resp = await fetch('/auth/token-exchange', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shop, idToken })
-      });
-      data = await resp.json();
-    } catch (e) {
-      setStatus('❌ Error de red al contactar el servidor: ' + e.message, '#b91c1c');
-      return;
-    }
-
-    if (!resp.ok || !data.token) {
-      const errMsg = data.error || data.message || JSON.stringify(data);
-      setStatus('❌ Servidor rechazó el token: ' + errMsg + ' (HTTP ' + resp.status + ')', '#b91c1c');
-      return;
-    }
-
-    // SUCCESS
-    bar.style.background = '#1a7f37';
-    bar.innerHTML = `
-      ✅ <strong>Token obtenido.</strong> Agrega estas variables en Railway → Variables:
-      <span style="background:#0d5c27;padding:3px 8px;border-radius:4px;margin-left:10px">
-        TIENDA1_SHOPIFY_STORE = ${data.shop}
-      </span>
-      <span style="background:#0d5c27;padding:3px 8px;border-radius:4px;margin-left:6px">
-        TIENDA1_SHOPIFY_ACCESS_TOKEN = ${data.token}
-      </span>
-      <button onclick="document.getElementById('tx-bar').remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button>`;
+    // Success — show Railway vars to copy
+    const vars = data.railwayVars || {};
+    const varLines = Object.entries(vars).map(([k, v]) => `${k} = ${v}`).join('\n');
+    statusEl.style.background = '#0d2818';
+    statusEl.style.color = '#3fb950';
+    statusEl.innerHTML = `
+      ✅ <strong>¡Conectado!</strong> Tienda: ${data.shopName} (${data.currency})<br><br>
+      <span style="color:#8b949e;font-size:12px">Para que sea permanente, agrega estas variables en <strong>Railway → Variables</strong>:</span><br>
+      <code style="display:block;background:#0d1117;padding:8px;border-radius:4px;margin-top:6px;font-size:12px;white-space:pre;color:#e6edf3">${varLines}</code>
+    `;
+    document.getElementById('connectBtn').style.display = 'none';
+    btn.disabled = false;
+    btn.textContent = 'Conectar →';
     loadData();
-
   } catch (e) {
-    setStatus('❌ Error inesperado: ' + e.message, '#b91c1c');
+    statusEl.style.background = '#3d1515';
+    statusEl.style.color = '#f85149';
+    statusEl.textContent = '❌ Error de red: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Conectar →';
   }
-})();
+}
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const state = {
@@ -559,9 +613,17 @@ function setLastUpdated() {
 
 function showError(msgs) {
   const el = document.getElementById('errorBanner');
-  if (!msgs || !msgs.length) { el.classList.remove('visible'); return; }
+  const btn = document.getElementById('connectBtn');
+  if (!msgs || !msgs.length) {
+    el.classList.remove('visible');
+    btn.style.display = 'none';
+    return;
+  }
   el.textContent = '⚠ ' + msgs.join(' · ');
   el.classList.add('visible');
+  // Show "Conectar Shopify" button if credentials are missing
+  const needsShopify = msgs.some(m => m.includes('SHOPIFY_STORE') || m.includes('ACCESS_TOKEN') || m.includes('no configurado'));
+  btn.style.display = needsShopify ? '' : 'none';
 }
 
 // ── CHART HELPERS ─────────────────────────────────────────────────────────────
