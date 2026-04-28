@@ -60,6 +60,55 @@ select {
 }
 select:focus { border-color: var(--blue); }
 
+.store-dd { position: relative; }
+.store-dd-btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 32px 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  min-width: 160px;
+  text-align: left;
+}
+.store-dd-btn::after {
+  content: '▾';
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--muted);
+}
+.store-dd-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 100%;
+  z-index: 9999;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.store-dd-menu.open { display: block; }
+.store-dd-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.store-dd-item:last-child { border-bottom: none; }
+.store-dd-item:hover, .store-dd-item.active { background: var(--surface); color: var(--blue); }
+
 .btn {
   background: var(--surface2);
   border: 1px solid var(--border);
@@ -316,9 +365,12 @@ tr:hover td { background: rgba(255,255,255,.02); }
 <!-- HEADER -->
 <header class="header">
   <div class="logo">Profit<span>Calc</span></div>
-  <select id="storeSelect">
-    <option value="global">🌍 Vista Global</option>
-  </select>
+  <div class="store-dd" id="storeDd">
+    <button class="store-dd-btn" id="storeDdBtn">🌍 Vista Global</button>
+    <div class="store-dd-menu" id="storeDdMenu">
+      <div class="store-dd-item active" data-value="global">🌍 Vista Global</div>
+    </div>
+  </div>
   <button class="btn" onclick="loadData()">↻ Actualizar</button>
   <button class="btn warn" id="connectBtn" onclick="openModal()" style="display:none">⚙ Conectar Shopify</button>
   <span class="last-updated" id="lastUpdated"></span>
@@ -616,17 +668,29 @@ function showError(msgs) {
 }
 
 // ── DATA LOADING ──────────────────────────────────────────────────────────────
+function setStoreDd(value, label) {
+  state.store = value;
+  document.getElementById('storeDdBtn').textContent = label;
+  document.querySelectorAll('.store-dd-item').forEach(el => el.classList.toggle('active', el.dataset.value === value));
+  document.getElementById('storeDdMenu').classList.remove('open');
+  loadData();
+}
+
 async function loadStores() {
   try {
     const json = await (await fetch('/api/stores')).json();
-    const sel = document.getElementById('storeSelect');
-    sel.innerHTML = '<option value="global">🌍 Vista Global</option>';
+    const menu = document.getElementById('storeDdMenu');
+    menu.innerHTML = '<div class="store-dd-item active" data-value="global">🌍 Vista Global</div>';
     for (const s of json.stores) {
-      const o = document.createElement('option');
-      o.value = s.id;
-      o.textContent = `${s.name} (${s.currency})`;
-      sel.appendChild(o);
+      const d = document.createElement('div');
+      d.className = 'store-dd-item';
+      d.dataset.value = s.id;
+      d.textContent = `${s.name} (${s.currency})`;
+      menu.appendChild(d);
     }
+    menu.querySelectorAll('.store-dd-item').forEach(el => {
+      el.addEventListener('click', () => setStoreDd(el.dataset.value, el.textContent));
+    });
     state.stores = json.stores;
   } catch {}
 }
@@ -865,10 +929,12 @@ document.querySelectorAll('.range-btn').forEach(btn => {
   });
 });
 
-document.getElementById('storeSelect').addEventListener('change', e => {
-  state.store = e.target.value;
-  loadData();
+// Store dropdown toggle
+document.getElementById('storeDdBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  document.getElementById('storeDdMenu').classList.toggle('open');
 });
+document.addEventListener('click', () => document.getElementById('storeDdMenu').classList.remove('open'));
 
 // ── CONNECT MODAL ─────────────────────────────────────────────────────────────
 function openModal() {
