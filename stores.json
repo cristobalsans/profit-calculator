@@ -47,6 +47,40 @@
           "cost_per_unit": 5.20
         }
       ]
+    },
+    {
+      "id": "polar_mexico",
+      "name": "Polar México",
+      "currency": "MXN",
+      "timezone": "America/Guadalajara",
+      "exchange_rate": 17.5,
+      "meta_exchange_rate": 1,
+      "break_even_roas": 2.0,
+      "payment_fee_rate": 0,
+      "monthly_fixed_costs_usd": 0,
+      "meta_campaigns": ["CBO polar 1 México"],
+      "products": [
+        {
+          "id": "shampoo_principal_mx",
+          "type": "main",
+          "match": "Shampoo tinte instantáneo",
+          "match_include": [],
+          "match_exclude": ["upsell"],
+          "tiers": [
+            { "min": 1, "max": 1, "cost": 11.40 },
+            { "min": 2, "max": 2, "cost": 20.30 },
+            { "min": 3, "max": null, "cost": 28.60 }
+          ]
+        },
+        {
+          "id": "aceite_upsell_mx",
+          "type": "fixed",
+          "match": "Aceite reparador 3 en 1",
+          "match_include": [],
+          "match_exclude": [],
+          "cost_per_unit": 5.80
+        }
+      ]
     }
   ]
 }
