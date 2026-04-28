@@ -278,11 +278,15 @@ async function fetchMetaAds(storeId, start, end, campaignFilters) {
 }
 
 // ── PRODUCT MATCHING ──────────────────────────────────────────────────────────
+function normalize(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 function matchProduct(title, cfg) {
-  const t = (title || '').toLowerCase();
-  if (!t.includes((cfg.match || '').toLowerCase())) return false;
-  if (cfg.match_exclude?.some(x => t.includes(x.toLowerCase()))) return false;
-  if (cfg.match_include?.length && !cfg.match_include.every(x => t.includes(x.toLowerCase()))) return false;
+  const t = normalize(title);
+  if (!t.includes(normalize(cfg.match))) return false;
+  if (cfg.match_exclude?.some(x => t.includes(normalize(x)))) return false;
+  if (cfg.match_include?.length && !cfg.match_include.every(x => t.includes(normalize(x)))) return false;
   return true;
 }
 
