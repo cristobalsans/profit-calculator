@@ -52,7 +52,7 @@
       "id": "polar_mexico",
       "name": "Polar México",
       "currency": "MXN",
-      "timezone": "America/Guadalajara",
+      "timezone": "America/Mexico_City",
       "exchange_rate": 17.5,
       "meta_exchange_rate": 1,
       "break_even_roas": 2.0,
