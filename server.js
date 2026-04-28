@@ -215,7 +215,7 @@ async function refreshMetaTokenIfNeeded(storeId) {
   }
 }
 
-async function fetchMetaAds(storeId, start, end) {
+async function fetchMetaAds(storeId, start, end, campaignFilters) {
   const token     = getMetaToken(storeId);
   const accountId = env(storeId, 'META_AD_ACCOUNT_ID');
 
@@ -223,11 +223,19 @@ async function fetchMetaAds(storeId, start, end) {
     return { data: [], error: `Meta Ads no configurado (${storeId.toUpperCase()}_META_ACCESS_TOKEN / _META_AD_ACCOUNT_ID)` };
 
   const actId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
-  const url   = `https://graph.facebook.com/v19.0/${actId}/insights?` + new URLSearchParams({
-    fields: 'spend,impressions,clicks,actions,date_start',
+
+  // If campaign filters defined, fetch at campaign level and filter by name
+  const level  = campaignFilters?.length ? 'campaign' : 'account';
+  const fields = campaignFilters?.length
+    ? 'spend,impressions,clicks,actions,date_start,campaign_name'
+    : 'spend,impressions,clicks,actions,date_start';
+
+  const url = `https://graph.facebook.com/v19.0/${actId}/insights?` + new URLSearchParams({
+    fields,
     time_range: JSON.stringify({ since: start, until: end }),
     time_increment: '1',
-    limit: '365',
+    level,
+    limit: '1000',
     access_token: token
   });
 
@@ -240,7 +248,33 @@ async function fetchMetaAds(storeId, start, end) {
     return { data: [], error: `Meta API: ${msg}` };
   }
 
-  return { data: res.body.data || [] };
+  let rows = res.body.data || [];
+
+  // Filter by campaign name patterns and merge by date
+  if (campaignFilters?.length) {
+    const filters = campaignFilters.map(f => f.toLowerCase());
+    rows = rows.filter(r => filters.some(f => (r.campaign_name || '').toLowerCase().includes(f)));
+
+    // Merge rows with same date into one entry
+    const byDate = {};
+    for (const r of rows) {
+      const d = r.date_start;
+      if (!byDate[d]) {
+        byDate[d] = { date_start: d, spend: 0, impressions: 0, clicks: 0, actions: [] };
+      }
+      byDate[d].spend       += parseFloat(r.spend || 0);
+      byDate[d].impressions += parseInt(r.impressions || 0);
+      byDate[d].clicks      += parseInt(r.clicks || 0);
+      for (const a of r.actions || []) {
+        const existing = byDate[d].actions.find(x => x.action_type === a.action_type);
+        if (existing) existing.value = String(parseFloat(existing.value || 0) + parseFloat(a.value || 0));
+        else byDate[d].actions.push({ ...a });
+      }
+    }
+    rows = Object.values(byDate);
+  }
+
+  return { data: rows };
 }
 
 // ── PRODUCT MATCHING ──────────────────────────────────────────────────────────
@@ -302,13 +336,17 @@ function calcOrderCOGS(order, products) {
 
 // ── DATA PROCESSING ───────────────────────────────────────────────────────────
 function processData(orders, metaData, store, start, end) {
-  const rate     = store.exchange_rate || 1;
-  const products = store.products || [];
+  const rate       = store.exchange_rate || 1;
+  const metaRate   = store.meta_exchange_rate || 1;
+  const products   = store.products || [];
+  const feeRate    = store.payment_fee_rate || 0;
+  const dailyFixed = (store.monthly_fixed_costs_usd || 0) / 30;
 
   const daily = {};
   for (const d of datesInRange(start, end)) {
     daily[d] = { date: d,
       revenue: 0, revenue_local: 0, cogs: 0, cogs_local: 0,
+      fees: dailyFixed,
       adSpend: 0, orders: 0, impressions: 0, clicks: 0, purchases: 0 };
   }
 
@@ -319,12 +357,13 @@ function processData(orders, metaData, store, start, end) {
     if (!daily[d]) continue;
 
     const revenueLocal          = parseFloat(order.total_price) || 0;
-    const { total: cogsLocal, breakdown } = calcOrderCOGS(order, products);
+    const { total: cogsUSD, breakdown } = calcOrderCOGS(order, products);
 
     daily[d].revenue       += revenueLocal / rate;
     daily[d].revenue_local += revenueLocal;
-    daily[d].cogs          += cogsLocal / rate;
-    daily[d].cogs_local    += cogsLocal;
+    daily[d].cogs          += cogsUSD;
+    daily[d].cogs_local    += cogsUSD * rate;
+    daily[d].fees          += (revenueLocal / rate) * feeRate;
     daily[d].orders        += 1;
 
     for (const item of order.line_items || []) {
@@ -342,8 +381,8 @@ function processData(orders, metaData, store, start, end) {
       if (!cfg) continue;
       for (const item of order.line_items || []) {
         if (matchProduct(item.title, cfg) && productMap[item.title]) {
-          productMap[item.title].cogs       += cost / rate;
-          productMap[item.title].cogs_local += cost;
+          productMap[item.title].cogs       += cost;
+          productMap[item.title].cogs_local += cost * rate;
         }
       }
     }
@@ -352,7 +391,7 @@ function processData(orders, metaData, store, start, end) {
   for (const ins of metaData) {
     const d = ins.date_start;
     if (!daily[d]) continue;
-    daily[d].adSpend     += parseFloat(ins.spend || 0) / rate;
+    daily[d].adSpend     += parseFloat(ins.spend || 0) / metaRate;
     daily[d].impressions += parseInt(ins.impressions || 0);
     daily[d].clicks      += parseInt(ins.clicks || 0);
     const purchase = (ins.actions || []).find(a =>
@@ -365,7 +404,7 @@ function processData(orders, metaData, store, start, end) {
   const dailyArr = Object.values(daily).sort((a, b) => a.date.localeCompare(b.date));
   for (const day of dailyArr) {
     day.grossProfit = day.revenue - day.cogs;
-    day.netProfit   = day.grossProfit - day.adSpend;
+    day.netProfit   = day.grossProfit - day.adSpend - day.fees;
     day.netMargin   = day.revenue > 0 ? (day.netProfit / day.revenue) * 100 : 0;
     day.roas        = day.adSpend > 0 ? day.revenue / day.adSpend : 0;
     day.ctr         = day.impressions > 0 ? (day.clicks / day.impressions) * 100 : 0;
@@ -376,21 +415,24 @@ function processData(orders, metaData, store, start, end) {
     revenue_local: acc.revenue_local + d.revenue_local,
     cogs:          acc.cogs          + d.cogs,
     cogs_local:    acc.cogs_local    + d.cogs_local,
+    fees:          acc.fees          + d.fees,
     adSpend:       acc.adSpend       + d.adSpend,
     orders:        acc.orders        + d.orders,
     impressions:   acc.impressions   + d.impressions,
     clicks:        acc.clicks        + d.clicks,
     purchases:     acc.purchases     + d.purchases,
-  }), { revenue: 0, revenue_local: 0, cogs: 0, cogs_local: 0,
+  }), { revenue: 0, revenue_local: 0, cogs: 0, cogs_local: 0, fees: 0,
         adSpend: 0, orders: 0, impressions: 0, clicks: 0, purchases: 0 });
 
   totals.grossProfit = totals.revenue - totals.cogs;
-  totals.netProfit   = totals.grossProfit - totals.adSpend;
+  totals.netProfit   = totals.grossProfit - totals.adSpend - totals.fees;
   totals.netMargin   = totals.revenue > 0 ? (totals.netProfit / totals.revenue) * 100 : 0;
   totals.roas        = totals.adSpend > 0 ? totals.revenue / totals.adSpend : 0;
   totals.ctr         = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
   totals.cpa         = totals.purchases > 0 ? totals.adSpend / totals.purchases : 0;
   totals.aov         = totals.orders > 0 ? totals.revenue / totals.orders : 0;
+  const contribution = totals.revenue - totals.cogs - totals.fees;
+  totals.be_roas     = contribution > 0 ? totals.revenue / contribution : 0;
 
   const productTable = Object.values(productMap).map(p => ({
     ...p,
@@ -411,14 +453,14 @@ async function buildGlobalData(range) {
     refreshMetaTokenIfNeeded(store.id).catch(() => {});
     const [shopify, meta] = await Promise.all([
       fetchShopifyOrders(store.id, start, end),
-      fetchMetaAds(store.id, start, end)
+      fetchMetaAds(store.id, start, end, store.meta_campaigns)
     ]);
     const processed = processData(shopify.orders || [], meta.data || [], store, start, end);
     return { store, processed, errors: [shopify.error, meta.error].filter(Boolean) };
   }));
 
   const dailyMap  = {};
-  const SUM_KEYS  = ['revenue', 'cogs', 'adSpend', 'orders', 'impressions', 'clicks', 'purchases'];
+  const SUM_KEYS  = ['revenue', 'cogs', 'fees', 'adSpend', 'orders', 'impressions', 'clicks', 'purchases'];
   const gTotals   = Object.fromEntries(SUM_KEYS.map(k => [k, 0]));
   const prodMap   = {};
   const errors    = [];
@@ -456,12 +498,14 @@ async function buildGlobalData(range) {
   }
 
   gTotals.grossProfit = gTotals.revenue - gTotals.cogs;
-  gTotals.netProfit   = gTotals.grossProfit - gTotals.adSpend;
+  gTotals.netProfit   = gTotals.grossProfit - gTotals.adSpend - gTotals.fees;
   gTotals.netMargin   = gTotals.revenue > 0 ? (gTotals.netProfit / gTotals.revenue) * 100 : 0;
   gTotals.roas        = gTotals.adSpend > 0 ? gTotals.revenue / gTotals.adSpend : 0;
   gTotals.ctr         = gTotals.impressions > 0 ? (gTotals.clicks / gTotals.impressions) * 100 : 0;
   gTotals.cpa         = gTotals.purchases > 0 ? gTotals.adSpend / gTotals.purchases : 0;
   gTotals.aov         = gTotals.orders > 0 ? gTotals.revenue / gTotals.orders : 0;
+  const gContrib      = gTotals.revenue - gTotals.cogs - gTotals.fees;
+  gTotals.be_roas     = gContrib > 0 ? gTotals.revenue / gContrib : 0;
 
   const productTable = Object.values(prodMap)
     .map(p => ({ ...p, margin: p.revenue > 0 ? (p.grossProfit / p.revenue) * 100 : 0 }))
@@ -469,7 +513,7 @@ async function buildGlobalData(range) {
 
   return {
     currency: 'USD', exchange_rate: 1,
-    break_even_roas: breakEvens.length ? breakEvens.reduce((a, b) => a + b, 0) / breakEvens.length : 2,
+    break_even_roas: gTotals.be_roas || (breakEvens.length ? breakEvens.reduce((a, b) => a + b, 0) / breakEvens.length : 2),
     daily: dailyArr, totals: gTotals, productTable, errors
   };
 }
@@ -537,7 +581,7 @@ const server = http.createServer(async (req, res) => {
 
       const [shopify, meta] = await Promise.all([
         fetchShopifyOrders(storeId, start, end),
-        fetchMetaAds(storeId, start, end)
+        fetchMetaAds(storeId, start, end, store.meta_campaigns)
       ]);
 
       const processed = processData(shopify.orders || [], meta.data || [], store, start, end);
@@ -546,7 +590,7 @@ const server = http.createServer(async (req, res) => {
         store: storeId, name: store.name,
         currency: store.currency || 'USD',
         exchange_rate: store.exchange_rate || 1,
-        break_even_roas: store.break_even_roas || 2,
+        break_even_roas: processed.totals.be_roas || store.break_even_roas || 2,
         start, end,
         ...processed,
         errors: [shopify.error, meta.error].filter(Boolean)

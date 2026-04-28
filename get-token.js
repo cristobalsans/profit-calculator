@@ -1,17 +1,37 @@
 'use strict';
 /**
- * Helper para obtener tokens de Shopify y Meta Ads.
+ * Shopify OAuth helper — obtiene un access token para una Partners app.
  * Uso: node get-token.js
  */
+const http = require('http');
 const https = require('https');
 const readline = require('readline');
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const ask = (q) => new Promise(resolve => rl.question(q, resolve));
+const PORT = 3456;
 
-function httpGet(options) {
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const ask = q => new Promise(resolve => rl.question(q, resolve));
+
+function httpsGet(urlStr) {
   return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
+    https.get(urlStr, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    }).on('error', reject);
+  });
+}
+
+function httpsPost(hostname, path, body) {
+  return new Promise((resolve, reject) => {
+    const str = JSON.stringify(body);
+    const req = https.request({
+      hostname, path, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(str) }
+    }, res => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
@@ -20,114 +40,109 @@ function httpGet(options) {
       });
     });
     req.on('error', reject);
+    req.write(str);
     req.end();
   });
 }
 
-async function checkMetaToken() {
-  console.log('\n── META ADS TOKEN ──────────────────────────────────');
-  console.log('Para obtener un token de Meta Ads:');
-  console.log('1. Ve a: https://developers.facebook.com/tools/explorer/');
-  console.log('2. Selecciona tu app y tu cuenta de anuncios');
-  console.log('3. Agrega permisos: ads_read, ads_management, read_insights');
-  console.log('4. Haz clic en "Generar token de acceso"\n');
-
-  const token = await ask('Pega tu Meta Access Token aquí: ');
-  const appId = await ask('Pega tu Meta App ID: ');
-  const appSecret = await ask('Pega tu Meta App Secret: ');
-
-  console.log('\nVerificando token...');
-
-  const res = await httpGet({
-    hostname: 'graph.facebook.com',
-    path: `/debug_token?input_token=${token.trim()}&access_token=${appId.trim()}|${appSecret.trim()}`,
-    method: 'GET'
-  });
-
-  if (res.status !== 200 || !res.body.data) {
-    console.log('ERROR: No se pudo verificar el token:', res.body);
-    return;
-  }
-
-  const data = res.body.data;
-  if (data.is_valid) {
-    const expiresAt = data.expires_at ? new Date(data.expires_at * 1000) : null;
-    console.log('\n✓ Token válido');
-    if (expiresAt) {
-      const daysLeft = Math.floor((expiresAt - Date.now()) / (1000 * 60 * 60 * 24));
-      console.log(`  Expira: ${expiresAt.toLocaleDateString()} (en ${daysLeft} días)`);
-      if (daysLeft < 60) {
-        console.log('\nExtendiendo a token de larga duración...');
-        const refreshRes = await httpGet({
-          hostname: 'graph.facebook.com',
-          path: `/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId.trim()}&client_secret=${appSecret.trim()}&fb_exchange_token=${token.trim()}`,
-          method: 'GET'
-        });
-        if (refreshRes.body.access_token) {
-          console.log('\n✓ Token extendido (60 días):');
-          console.log(refreshRes.body.access_token);
-        }
-      }
-    } else {
-      console.log('  Sin fecha de expiración (token de sistema/permanente)');
-    }
-    console.log('\nScopes habilitados:', (data.scopes || []).join(', '));
-  } else {
-    console.log('ERROR: Token inválido');
-    if (data.error) console.log('Motivo:', data.error.message);
-  }
-}
-
-async function checkShopifyToken() {
-  console.log('\n── SHOPIFY ACCESS TOKEN ─────────────────────────────');
-  console.log('Para obtener un token de Shopify:');
-  console.log('1. Ve al admin de tu tienda Shopify');
-  console.log('2. Configuración → Aplicaciones y canales de venta');
-  console.log('3. Desarrollar aplicaciones → Crear una aplicación');
-  console.log('4. En "Configuración de la API", habilita:');
-  console.log('   - read_orders');
-  console.log('   - read_products');
-  console.log('5. Instala la app → copia el "API access token"\n');
-
-  const store = await ask('Nombre de tu tienda (sin .myshopify.com): ');
-  const token = await ask('Pega tu Shopify Access Token: ');
-
-  console.log('\nVerificando token...');
-
-  const res = await httpGet({
-    hostname: `${store.trim()}.myshopify.com`,
-    path: '/admin/api/2024-01/shop.json',
-    method: 'GET',
-    headers: { 'X-Shopify-Access-Token': token.trim() }
-  });
-
-  if (res.status === 200 && res.body.shop) {
-    console.log('\n✓ Token válido');
-    console.log(`  Tienda: ${res.body.shop.name}`);
-    console.log(`  Plan: ${res.body.shop.plan_name}`);
-    console.log(`  Moneda: ${res.body.shop.currency}`);
-    console.log(`  Timezone: ${res.body.shop.iana_timezone}`);
-  } else {
-    console.log('ERROR: Token inválido o tienda no encontrada (status:', res.status, ')');
-  }
-}
-
 async function main() {
-  console.log('═══════════════════════════════════════════════════');
-  console.log('  PROFIT CALCULATOR — Verificador de Credenciales');
-  console.log('═══════════════════════════════════════════════════');
-  console.log('\n¿Qué quieres verificar?');
-  console.log('1. Token de Shopify');
-  console.log('2. Token de Meta Ads');
-  console.log('3. Ambos\n');
+  console.log('\n════════════════════════════════════════════════');
+  console.log('  Shopify OAuth — Obtener Access Token');
+  console.log('════════════════════════════════════════════════\n');
 
-  const choice = await ask('Opción (1/2/3): ');
-
-  if (choice === '1' || choice === '3') await checkShopifyToken();
-  if (choice === '2' || choice === '3') await checkMetaToken();
-
-  console.log('\n¡Listo! Copia los tokens al archivo .env\n');
+  const shop     = (await ask('Nombre de tu tienda (sin .myshopify.com): ')).trim();
+  const clientId = (await ask('Client ID de tu app: ')).trim();
+  const secret   = (await ask('Client Secret de tu app: ')).trim();
   rl.close();
+
+  const redirectUri = `http://localhost:${PORT}/callback`;
+  const scopes      = 'read_orders,read_products';
+  const state       = Math.random().toString(36).slice(2);
+
+  const authUrl = `https://${shop}.myshopify.com/admin/oauth/authorize` +
+    `?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+
+  console.log('\n✅ Todo listo. Ahora:\n');
+  console.log('1. Abre esta URL en tu navegador:');
+  console.log('\n   ' + authUrl + '\n');
+  console.log('2. Acepta los permisos en Shopify');
+  console.log('3. El token aparecerá automáticamente en el navegador\n');
+  console.log('Esperando autorización...\n');
+
+  // Local server waiting for callback
+  const server = http.createServer(async (req, res) => {
+    const u = new URL(req.url, `http://localhost:${PORT}`);
+    if (u.pathname !== '/callback') { res.writeHead(404); res.end(); return; }
+
+    const code      = u.searchParams.get('code');
+    const returnedState = u.searchParams.get('state');
+
+    if (!code) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('<h2>Error: no se recibió el código de autorización</h2>');
+      server.close();
+      return;
+    }
+
+    if (returnedState !== state) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('<h2>Error: state no coincide (posible CSRF)</h2>');
+      server.close();
+      return;
+    }
+
+    // Exchange code for token
+    let tokenRes;
+    try {
+      tokenRes = await httpsPost(`${shop}.myshopify.com`, '/admin/oauth/access_token', {
+        client_id: clientId, client_secret: secret, code
+      });
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`<h2>Error al obtener token: ${e.message}</h2>`);
+      server.close();
+      return;
+    }
+
+    const token = tokenRes.body.access_token;
+
+    if (!token) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`<h2>Error: ${JSON.stringify(tokenRes.body)}</h2>`);
+      server.close();
+      return;
+    }
+
+    console.log('\n✅ TOKEN OBTENIDO:\n');
+    console.log('   POLAR_CHILE_SHOPIFY_STORE=' + shop);
+    console.log('   POLAR_CHILE_SHOPIFY_ACCESS_TOKEN=' + token + '\n');
+
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { font-family: sans-serif; max-width: 680px; margin: 60px auto; padding: 20px; background: #0d1117; color: #e6edf3; }
+  h2 { color: #3fb950; }
+  .box { background: #21262d; border-radius: 8px; padding: 14px 18px; margin: 14px 0; font-family: monospace; font-size: 15px; word-break: break-all; color: #79c0ff; }
+  p { color: #8b949e; }
+  .label { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-top: 18px; margin-bottom: 4px; }
+</style></head>
+<body>
+  <h2>✅ ¡Token obtenido!</h2>
+  <p>Copia estas dos variables y pégalas en Railway → Variables:</p>
+  <div class="label">Variable 1</div>
+  <div class="box">POLAR_CHILE_SHOPIFY_STORE=${shop}</div>
+  <div class="label">Variable 2</div>
+  <div class="box">POLAR_CHILE_SHOPIFY_ACCESS_TOKEN=${token}</div>
+  <p style="margin-top:24px">Una vez que las cargues en Railway, avísale a Claude Code y seguimos con Meta Ads.</p>
+</body></html>`);
+
+    server.close();
+  });
+
+  server.listen(PORT, () => {
+    console.log(`Servidor local escuchando en http://localhost:${PORT}`);
+  });
 }
 
-main().catch(err => { console.error(err); rl.close(); });
+main().catch(e => { console.error(e); process.exit(1); });

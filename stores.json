@@ -1,71 +1,50 @@
 {
   "stores": [
     {
-      "id": "tienda1",
-      "name": "Mi Primera Tienda",
-      "currency": "ARS",
-      "timezone": "America/Argentina/Buenos_Aires",
-      "exchange_rate": 1200,
-      "break_even_roas": 2.5,
-      "products": [
-        {
-          "id": "producto_principal",
-          "type": "main",
-          "match": "Producto Principal",
-          "match_include": [],
-          "match_exclude": ["muestra", "tester"],
-          "tiers": [
-            { "min": 1, "max": 1, "cost": 5000 },
-            { "min": 2, "max": 3, "cost": 9000 },
-            { "min": 4, "max": null, "cost": 16000 }
-          ]
-        },
-        {
-          "id": "regalo",
-          "type": "gift",
-          "match": "Regalo",
-          "match_include": [],
-          "match_exclude": [],
-          "cost_per_unit": 800
-        },
-        {
-          "id": "accesorio",
-          "type": "fixed",
-          "match": "Accesorio",
-          "match_include": [],
-          "match_exclude": [],
-          "cost_per_unit": 1200
-        }
-      ]
-    },
-    {
-      "id": "tienda2",
-      "name": "Mi Segunda Tienda",
-      "currency": "MXN",
-      "timezone": "America/Mexico_City",
-      "exchange_rate": 17.5,
+      "id": "polar_chile",
+      "name": "Polar Chile",
+      "currency": "CLP",
+      "timezone": "America/Santiago",
+      "exchange_rate": 950,
+      "meta_exchange_rate": 1,
       "break_even_roas": 3.0,
+      "payment_fee_rate": 0.055,
+      "monthly_fixed_costs_usd": 0,
+      "meta_campaigns": ["polar CHILE"],
       "products": [
         {
-          "id": "producto_principal",
+          "id": "shampoo_principal",
           "type": "main",
-          "match": "Producto Principal",
+          "match": "Shampoo tinte instantáneo",
           "match_include": [],
-          "match_exclude": [],
+          "match_exclude": ["upsell"],
           "tiers": [
-            { "min": 1, "max": 1, "cost": 150 },
-            { "min": 2, "max": 3, "cost": 280 },
-            { "min": 4, "max": null, "cost": 520 }
+            { "min": 1, "max": 1, "cost": 10.00 },
+            { "min": 2, "max": 2, "cost": 15.80 },
+            { "min": 3, "max": 3, "cost": 23.80 },
+            { "min": 4, "max": null, "cost": 31.40 }
           ]
         },
         {
-          "id": "complemento",
-          "type": "standalone_with_main_discount",
-          "match": "Complemento",
+          "id": "shampoo_upsell",
+          "type": "fixed",
+          "match": "Shampoo tinte instantáneo upsell",
           "match_include": [],
           "match_exclude": [],
-          "cost_with_main": 60,
-          "cost_standalone": 80
+          "tiers": [
+            { "min": 1, "max": 1, "cost": 10.00 },
+            { "min": 2, "max": 2, "cost": 15.80 },
+            { "min": 3, "max": 3, "cost": 23.80 },
+            { "min": 4, "max": null, "cost": 31.40 }
+          ]
+        },
+        {
+          "id": "aceite_reparador",
+          "type": "fixed",
+          "match": "Aceite reparador 3 en 1",
+          "match_include": [],
+          "match_exclude": [],
+          "cost_per_unit": 5.20
         }
       ]
     }

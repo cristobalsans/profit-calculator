@@ -361,6 +361,11 @@ tr:hover td { background: rgba(255,255,255,.02); }
       <div class="kpi-value" id="kpi-cogs">—</div>
       <div class="kpi-sub"  id="kpi-cogs-sub"></div>
     </div>
+    <div class="kpi-card" style="--accent:var(--red)">
+      <div class="kpi-label">Fees & Comisiones</div>
+      <div class="kpi-value" id="kpi-fees">—</div>
+      <div class="kpi-sub"  id="kpi-fees-sub"></div>
+    </div>
     <div class="kpi-card" style="--accent:var(--purple)">
       <div class="kpi-label">Gross Profit</div>
       <div class="kpi-value" id="kpi-gross">—</div>
@@ -656,7 +661,7 @@ function renderKPIs(d) {
   const cur = d.currency || 'USD';
   const rate = d.exchange_rate || 1;
   const showLocal = state.store !== 'global' && cur !== 'USD';
-  const be  = d.break_even_roas || 2;
+  const be  = d.totals?.be_roas || d.break_even_roas || 2;
 
   const set = (id, val, sub, positive, negative) => {
     document.getElementById(`kpi-${id}`).textContent = val;
@@ -674,6 +679,9 @@ function renderKPIs(d) {
 
   set('cogs', USD(t.cogs),
       showLocal ? LC(t.cogs_local, cur) : '');
+
+  set('fees', USD(t.fees || 0),
+      showLocal ? LC((t.fees || 0) * rate, cur) : 'Pasarela + apps');
 
   set('gross', USD(t.grossProfit),
       showLocal ? LC(t.grossProfit * rate, cur) : '',
@@ -743,11 +751,14 @@ function renderCharts(d) {
 
   // 4. Cost Breakdown donut
   const cogsV  = Math.max(0, t.cogs);
+  const feesV  = Math.max(0, t.fees || 0);
   const spendV = Math.max(0, t.adSpend);
   const profV  = Math.max(0, t.netProfit);
-  if (cogsV + spendV + profV > 0)
-    mkDonut('chartCosts', ['COGS', 'Ad Spend', 'Net Profit'], [cogsV, spendV, profV],
-            [C.orange, C.red, C.green]);
+  if (cogsV + feesV + spendV + profV > 0)
+    mkDonut('chartCosts',
+      ['COGS', 'Fees & Comisiones', 'Ad Spend', 'Net Profit'],
+      [cogsV, feesV, spendV, profV],
+      [C.orange, C.purple, C.red, C.green]);
 
   // 5. Net Margin % line
   destroyChart('chartMargin');
