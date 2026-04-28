@@ -85,18 +85,17 @@ select:focus { border-color: var(--blue); }
 }
 .store-dd-menu {
   display: none;
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  position: fixed;
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  min-width: 100%;
-  z-index: 9999;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-  max-height: 60vh;
+  min-width: 200px;
+  z-index: 99999;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  max-height: 70vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 .store-dd-menu.open { display: block; }
 .store-dd-item {
@@ -929,10 +928,14 @@ document.querySelectorAll('.range-btn').forEach(btn => {
   });
 });
 
-// Store dropdown toggle
+// Store dropdown toggle — position fixed so it never gets clipped by the header
 document.getElementById('storeDdBtn').addEventListener('click', e => {
   e.stopPropagation();
-  document.getElementById('storeDdMenu').classList.toggle('open');
+  const menu = document.getElementById('storeDdMenu');
+  const rect = e.currentTarget.getBoundingClientRect();
+  menu.style.top  = (rect.bottom + 4) + 'px';
+  menu.style.left = rect.left + 'px';
+  menu.classList.toggle('open');
 });
 document.addEventListener('click', () => document.getElementById('storeDdMenu').classList.remove('open'));
 
