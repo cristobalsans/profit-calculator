@@ -366,9 +366,6 @@ tr:hover td { background: rgba(255,255,255,.02); }
   <div class="logo">Profit<span>Calc</span></div>
   <div class="store-dd" id="storeDd">
     <button class="store-dd-btn" id="storeDdBtn">🌍 Vista Global</button>
-    <div class="store-dd-menu" id="storeDdMenu">
-      <div class="store-dd-item active" data-value="global">🌍 Vista Global</div>
-    </div>
   </div>
   <button class="btn" onclick="loadData()">↻ Actualizar</button>
   <button class="btn warn" id="connectBtn" onclick="openModal()" style="display:none">⚙ Conectar Shopify</button>
@@ -1004,5 +1001,10 @@ document.getElementById('connectModal').addEventListener('click', e => {
 loadStores().then(() => loadData());
 setInterval(loadData, 5 * 60 * 1000);
 </script>
+
+<!-- Dropdown fuera del sticky header para que position:fixed funcione en iOS -->
+<div class="store-dd-menu" id="storeDdMenu">
+  <div class="store-dd-item active" data-value="global">🌍 Vista Global</div>
+</div>
 </body>
 </html>
