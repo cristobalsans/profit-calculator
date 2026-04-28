@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Profit Calculator</title>
+<!-- App Bridge MUST be in <head> so Shopify can establish the iframe channel at load time -->
+<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="20b58900b8ba550dcd8cd21b7b9794e4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -491,24 +493,91 @@
 </main>
 
 <script>
-// ── CONNECT SHOPIFY MODAL ─────────────────────────────────────────────────────
+// ── SHOPIFY TOKEN EXCHANGE ─────────────────────────────────────────────────────
+// App Bridge is loaded in <head> so window.shopify is ready when Shopify opens
+// this page inside its Admin iframe. We poll for it (max 4s) then get the token.
+(async function tryTokenExchange() {
+  const params = new URLSearchParams(window.location.search);
+  const shop   = params.get('shop');
+  const host   = params.get('host');
+  if (!shop || !host) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'tx-bar';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;padding:10px 20px;font-size:13px;font-family:monospace;display:flex;align-items:center;gap:8px;background:#1158c7;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5)';
+  const setBar = (msg, color) => {
+    bar.style.background = color || '#1158c7';
+    bar.innerHTML = msg + ' <button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer">×</button>';
+  };
+  document.body.prepend(bar);
+  setBar('🔄 Conectando con Shopify...');
+
+  // Poll for window.shopify — App Bridge sets it once the iframe channel is ready
+  let waited = 0;
+  while (!window.shopify && waited < 4000) {
+    await new Promise(r => setTimeout(r, 150));
+    waited += 150;
+  }
+
+  if (!window.shopify) {
+    setBar('⚠️ Abre el dashboard desde <strong>Shopify Admin → Apps → tu app</strong> — no funciona con URL directa.', '#9a5700');
+    return;
+  }
+
+  setBar('🔑 Obteniendo token...');
+  let idToken;
+  try {
+    idToken = await window.shopify.idToken();
+  } catch (e) {
+    setBar('❌ idToken falló: ' + e.message + ' · Abre desde Shopify Admin → Apps', '#b91c1c');
+    return;
+  }
+
+  if (!idToken) {
+    setBar('❌ idToken vacío · Abre desde Shopify Admin → Apps', '#b91c1c');
+    return;
+  }
+
+  setBar('🔄 Verificando con servidor...');
+  let resp, data;
+  try {
+    resp = await fetch('/auth/token-exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shop, idToken })
+    });
+    data = await resp.json();
+  } catch (e) {
+    setBar('❌ Error de red: ' + e.message, '#b91c1c');
+    return;
+  }
+
+  if (!resp.ok || !data.token) {
+    setBar('❌ Shopify rechazó el token: ' + (data.error || JSON.stringify(data.details || data)), '#b91c1c');
+    return;
+  }
+
+  bar.style.background = '#1a7f37';
+  bar.innerHTML = `
+    ✅ <strong>¡Conectado!</strong> Copia en Railway → Variables:
+    <span style="background:#0d5c27;padding:3px 10px;border-radius:4px;margin:0 4px">TIENDA1_SHOPIFY_STORE = ${data.shop}</span>
+    <span style="background:#0d5c27;padding:3px 10px;border-radius:4px">TIENDA1_SHOPIFY_ACCESS_TOKEN = ${data.token}</span>
+    <button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer">×</button>
+  `;
+  loadData();
+})();
+
+// ── CONNECT MANUAL (fallback) ──────────────────────────────────────────────────
 function openConnect() {
   const modal = document.getElementById('connectModal');
   modal.style.display = 'flex';
-  // Populate store select
   const sel = document.getElementById('connectStoreId');
   sel.innerHTML = '';
-  state.stores.forEach(s => {
+  (state.stores.length ? state.stores : [{id:'tienda1',name:'tienda1'}]).forEach(s => {
     const opt = document.createElement('option');
-    opt.value = s.id;
-    opt.textContent = s.name + ' (' + s.id + ')';
+    opt.value = s.id; opt.textContent = s.name + ' (' + s.id + ')';
     sel.appendChild(opt);
   });
-  if (!sel.options.length) {
-    const opt = document.createElement('option');
-    opt.value = 'tienda1'; opt.textContent = 'tienda1';
-    sel.appendChild(opt);
-  }
 }
 
 function closeConnect() {
@@ -522,60 +591,35 @@ async function doConnect() {
   const accessToken = document.getElementById('connectToken').value.trim();
   const statusEl    = document.getElementById('connectStatus');
   const btn         = document.getElementById('connectSubmit');
-
   if (!shopDomain || !accessToken) {
-    statusEl.style.display = 'block';
-    statusEl.style.background = '#3d1515';
-    statusEl.style.color = '#f85149';
-    statusEl.textContent = 'Completa el dominio y el token antes de continuar.';
+    statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
+    statusEl.textContent = 'Completa el dominio y el token.';
     return;
   }
-
-  btn.disabled = true;
-  btn.textContent = 'Verificando...';
-  statusEl.style.display = 'block';
-  statusEl.style.background = '#1c2128';
-  statusEl.style.color = '#8b949e';
-  statusEl.textContent = 'Conectando con Shopify...';
-
+  btn.disabled = true; btn.textContent = 'Verificando...';
+  statusEl.style.cssText = 'display:block;background:#1c2128;color:#8b949e;border-radius:6px;padding:10px';
+  statusEl.textContent = 'Conectando...';
   try {
     const resp = await fetch('/api/connect-store', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ storeId, shopDomain, accessToken })
     });
     const data = await resp.json();
-
     if (!resp.ok || !data.success) {
-      statusEl.style.background = '#3d1515';
-      statusEl.style.color = '#f85149';
-      statusEl.textContent = '❌ ' + (data.error || 'Error desconocido');
-      btn.disabled = false;
-      btn.textContent = 'Conectar →';
-      return;
+      statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
+      statusEl.textContent = '❌ ' + (data.error || 'Error');
+    } else {
+      const varLines = Object.entries(data.railwayVars || {}).map(([k,v]) => `${k} = ${v}`).join('\n');
+      statusEl.style.cssText = 'display:block;background:#0d2818;color:#3fb950;border-radius:6px;padding:10px';
+      statusEl.innerHTML = `✅ <strong>¡Conectado!</strong> ${data.shopName}<br><br><span style="color:#8b949e;font-size:12px">Copia en Railway → Variables:</span><br><code style="display:block;background:#0d1117;padding:8px;border-radius:4px;margin-top:6px;font-size:12px;white-space:pre;color:#e6edf3">${varLines}</code>`;
+      document.getElementById('connectBtn').style.display = 'none';
+      loadData();
     }
-
-    // Success — show Railway vars to copy
-    const vars = data.railwayVars || {};
-    const varLines = Object.entries(vars).map(([k, v]) => `${k} = ${v}`).join('\n');
-    statusEl.style.background = '#0d2818';
-    statusEl.style.color = '#3fb950';
-    statusEl.innerHTML = `
-      ✅ <strong>¡Conectado!</strong> Tienda: ${data.shopName} (${data.currency})<br><br>
-      <span style="color:#8b949e;font-size:12px">Para que sea permanente, agrega estas variables en <strong>Railway → Variables</strong>:</span><br>
-      <code style="display:block;background:#0d1117;padding:8px;border-radius:4px;margin-top:6px;font-size:12px;white-space:pre;color:#e6edf3">${varLines}</code>
-    `;
-    document.getElementById('connectBtn').style.display = 'none';
-    btn.disabled = false;
-    btn.textContent = 'Conectar →';
-    loadData();
   } catch (e) {
-    statusEl.style.background = '#3d1515';
-    statusEl.style.color = '#f85149';
+    statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
     statusEl.textContent = '❌ Error de red: ' + e.message;
-    btn.disabled = false;
-    btn.textContent = 'Conectar →';
   }
+  btn.disabled = false; btn.textContent = 'Conectar →';
 }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
