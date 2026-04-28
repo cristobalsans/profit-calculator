@@ -4,276 +4,311 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Profit Calculator</title>
-<!-- App Bridge MUST be in <head> so Shopify can establish the iframe channel at load time -->
-<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key="b52001e984ebd6b5863f1ca9856d5bec"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface2: #21262d;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --green: #3fb950;
-    --red: #f85149;
-    --blue: #58a6ff;
-    --orange: #d29922;
-    --purple: #bc8cff;
-    --teal: #39d353;
-    --radius: 8px;
-  }
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --surface2:#21262d;
+  --border:  #30363d;
+  --text:    #e6edf3;
+  --muted:   #8b949e;
+  --green:   #3fb950;
+  --red:     #f85149;
+  --blue:    #58a6ff;
+  --orange:  #d29922;
+  --purple:  #bc8cff;
+  --teal:    #39d353;
+  --radius:  8px;
+}
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 14px;
-    min-height: 100vh;
-  }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+}
 
-  /* ── HEADER ── */
-  .header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 12px 24px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-  .logo { font-size: 18px; font-weight: 700; color: var(--green); white-space: nowrap; }
-  .logo span { color: var(--text); }
+/* ── HEADER ── */
+.header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-wrap: wrap;
+}
+.logo { font-size: 17px; font-weight: 700; color: var(--green); white-space: nowrap; }
+.logo span { color: var(--text); }
 
-  select {
-    background: var(--surface2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 7px 12px;
-    font-size: 13px;
-    cursor: pointer;
-    outline: none;
-  }
-  select:focus { border-color: var(--blue); }
+select {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+select:focus { border-color: var(--blue); }
 
-  .refresh-btn {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 7px 14px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 13px;
-    transition: background .15s;
-  }
-  .refresh-btn:hover { background: var(--border); }
+.btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.btn:hover { background: var(--border); }
+.btn.warn  { border-color: var(--orange); color: var(--orange); }
 
-  .status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 6px var(--green);
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-  .status-dot.loading { background: var(--orange); box-shadow: 0 0 6px var(--orange); animation: pulse 1s infinite; }
-  .status-dot.error   { background: var(--red);    box-shadow: 0 0 6px var(--red); }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.status-dot.loading { background: var(--orange); box-shadow: 0 0 6px var(--orange); animation: pulse 1s infinite; }
+.status-dot.error   { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-  .last-updated { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.last-updated { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
-  /* ── DATE FILTERS ── */
-  .filters {
-    padding: 12px 24px;
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    border-bottom: 1px solid var(--border);
-  }
-  .range-btn {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 5px 12px;
-    border-radius: 20px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: all .15s;
-  }
-  .range-btn:hover  { border-color: var(--blue); color: var(--text); }
-  .range-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+/* ── FILTERS ── */
+.filters {
+  padding: 10px 24px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+.range-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 5px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all .15s;
+}
+.range-btn:hover  { border-color: var(--blue); color: var(--text); }
+.range-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 
-  /* ── ERROR BANNER ── */
-  .error-banner {
-    background: rgba(248,81,73,.12);
-    border: 1px solid rgba(248,81,73,.3);
-    border-radius: var(--radius);
-    padding: 10px 16px;
-    margin: 16px 24px;
-    color: #ffa198;
-    font-size: 13px;
-    display: none;
-  }
-  .error-banner.visible { display: block; }
+/* ── ERROR BANNER ── */
+.error-banner {
+  background: rgba(248,81,73,.12);
+  border: 1px solid rgba(248,81,73,.3);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  margin: 14px 24px;
+  color: #ffa198;
+  font-size: 13px;
+  display: none;
+}
+.error-banner.visible { display: block; }
 
-  /* ── MAIN ── */
-  .main { padding: 20px 24px; }
+/* ── MAIN ── */
+.main { padding: 18px 24px; }
 
-  /* ── KPI CARDS ── */
-  .kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-    gap: 12px;
-    margin-bottom: 20px;
-  }
-  .kpi-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    position: relative;
-    overflow: hidden;
-  }
-  .kpi-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: var(--accent, var(--blue));
-  }
-  .kpi-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .5px;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-  .kpi-value {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text);
-    line-height: 1;
-    margin-bottom: 4px;
-  }
-  .kpi-sub {
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .kpi-card.positive .kpi-value { color: var(--green); }
-  .kpi-card.negative .kpi-value { color: var(--red); }
+/* ── KPI CARDS ── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent, var(--blue));
+}
+.kpi-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+.kpi-value {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+  margin-bottom: 3px;
+}
+.kpi-sub { font-size: 11px; color: var(--muted); }
+.kpi-card.positive .kpi-value { color: var(--green); }
+.kpi-card.negative .kpi-value { color: var(--red); }
 
-  /* ── CHARTS GRID ── */
-  .charts-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 14px;
-    margin-bottom: 14px;
-  }
-  .charts-grid.full { grid-template-columns: 1fr; }
-  @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+/* ── CHARTS ── */
+.charts-row {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.charts-row.col-2 { grid-template-columns: 2fr 1fr; }
+.charts-row.col-1 { grid-template-columns: 1fr; }
+.charts-row.col-eq { grid-template-columns: 1fr 1fr; }
+@media (max-width: 860px) { .charts-row { grid-template-columns: 1fr !important; } }
 
-  .chart-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-  }
-  .chart-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 14px;
-  }
-  .chart-wrap { position: relative; }
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px;
+}
+.chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
 
-  /* ── PRODUCT TABLE ── */
-  .table-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-    margin-top: 14px;
-    overflow-x: auto;
-  }
-  .table-title {
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  th {
-    text-align: left;
-    padding: 8px 12px;
-    color: var(--muted);
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .4px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  th:hover { color: var(--text); }
-  th.sorted { color: var(--blue); }
-  td {
-    padding: 9px 12px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-    white-space: nowrap;
-  }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,.02); }
+/* ── TABLE ── */
+.table-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px;
+  margin-top: 12px;
+  overflow-x: auto;
+}
+.table-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left;
+  padding: 7px 12px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+}
+th:hover { color: var(--text); }
+th.sorted { color: var(--blue); }
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  white-space: nowrap;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,.02); }
 
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-  .badge.green { background: rgba(63,185,80,.15); color: var(--green); }
-  .badge.red   { background: rgba(248,81,73,.15);  color: var(--red);   }
-  .badge.blue  { background: rgba(88,166,255,.15); color: var(--blue);  }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge.green  { background: rgba(63,185,80,.15);  color: var(--green); }
+.badge.red    { background: rgba(248,81,73,.15);  color: var(--red); }
+.badge.blue   { background: rgba(88,166,255,.15); color: var(--blue); }
+.local-val    { font-size: 10px; color: var(--muted); display: block; }
+.no-data      { text-align: center; padding: 32px; color: var(--muted); font-size: 13px; }
 
-  .skeleton {
-    background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.4s infinite;
-    border-radius: 4px;
-    height: 24px;
-  }
-  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-
-  .currency-tag {
-    font-size: 10px;
-    color: var(--muted);
-    margin-left: 4px;
-  }
-  .local-val {
-    font-size: 11px;
-    color: var(--muted);
-    display: block;
-  }
-
-  .no-data {
-    text-align: center;
-    padding: 40px;
-    color: var(--muted);
-    font-size: 13px;
-  }
+/* ── CONNECT MODAL ── */
+.modal-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.75);
+  z-index: 9998;
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 26px;
+  max-width: 520px;
+  width: 93%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal h2 { font-size: 16px; margin-bottom: 4px; }
+.modal p  { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+.field { margin-bottom: 12px; }
+.field label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+.field input, .field select {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.field input:focus, .field select:focus { border-color: var(--blue); }
+.modal-actions { display: flex; gap: 8px; margin-top: 18px; }
+.btn-primary {
+  flex: 1;
+  background: #238636;
+  border: none;
+  color: #fff;
+  padding: 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.btn-primary:hover { background: #2ea043; }
+.modal-status {
+  display: none;
+  font-size: 13px;
+  border-radius: 6px;
+  padding: 11px;
+  margin-top: 10px;
+}
+.steps-box {
+  background: var(--surface2);
+  border-radius: 7px;
+  padding: 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.steps-box strong { color: var(--blue); }
+.steps-box ol { margin: 6px 0 0 18px; }
 </style>
 </head>
 <body>
@@ -284,66 +319,11 @@
   <select id="storeSelect">
     <option value="global">🌍 Vista Global</option>
   </select>
-  <button class="refresh-btn" onclick="loadData()">↻ Actualizar</button>
-  <button class="refresh-btn" id="connectBtn" onclick="openConnect()" style="display:none;border-color:#d29922;color:#d29922">⚙ Conectar Shopify</button>
+  <button class="btn" onclick="loadData()">↻ Actualizar</button>
+  <button class="btn warn" id="connectBtn" onclick="openModal()" style="display:none">⚙ Conectar Shopify</button>
   <span class="last-updated" id="lastUpdated"></span>
   <div class="status-dot" id="statusDot"></div>
 </header>
-
-<!-- CONNECT MODAL -->
-<div id="connectModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9998;align-items:center;justify-content:center">
-  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:28px;max-width:540px;width:93%;color:#e6edf3;max-height:90vh;overflow-y:auto">
-    <h2 style="margin-bottom:4px;font-size:17px">Conectar Shopify</h2>
-    <p style="color:#8b949e;font-size:13px;margin-bottom:18px">Crea una app personalizada en tu Shopify Admin para obtener un token permanente.</p>
-
-    <div style="background:#21262d;border-radius:8px;padding:16px;margin-bottom:18px;font-size:13px;line-height:1.6">
-      <strong style="color:#58a6ff">Cómo obtener el token (3 minutos):</strong>
-      <ol style="margin:8px 0 0 18px">
-        <li>Entra a tu Shopify Admin → <strong>Configuración</strong></li>
-        <li>Click en <strong>"Apps y canales de venta"</strong></li>
-        <li>Click en <strong>"Desarrollar apps"</strong> (arriba a la derecha)</li>
-        <li>Click en <strong>"Crear una app"</strong> → nombre: <em>Profit Calculator</em></li>
-        <li>Tab <strong>"Configuración de la API Admin"</strong> → activa <code>read_orders</code> y <code>read_products</code> → Guardar</li>
-        <li>Click <strong>"Instalar app"</strong> → tab <strong>"Credenciales de API"</strong></li>
-        <li>Copia el <strong>"Token de acceso de la API de Admin"</strong></li>
-      </ol>
-      <a id="shopifyAdminLink" href="https://admin.shopify.com" target="_blank"
-         style="display:inline-block;margin-top:10px;color:#58a6ff;font-size:12px;text-decoration:none">
-        → Abrir Shopify Admin ↗
-      </a>
-    </div>
-
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">¿Para qué tienda?</label>
-      <select id="connectStoreId" style="width:100%;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:8px 12px;font-size:13px;outline:none"></select>
-    </div>
-
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Dominio de la tienda</label>
-      <input id="connectDomain" type="text" placeholder="mitienda.myshopify.com"
-             style="width:100%;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:8px 12px;font-size:13px;outline:none" />
-    </div>
-
-    <div style="margin-bottom:20px">
-      <label style="font-size:12px;color:#8b949e;display:block;margin-bottom:4px">Token de acceso (empieza con shpat_)</label>
-      <input id="connectToken" type="password" placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-             style="width:100%;background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:8px 12px;font-size:13px;outline:none;font-family:monospace" />
-    </div>
-
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <button onclick="doConnect()" id="connectSubmit"
-              style="flex:1;background:#238636;border:none;color:#fff;padding:11px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">
-        Conectar →
-      </button>
-      <button onclick="closeConnect()"
-              style="background:#21262d;border:1px solid #30363d;color:#e6edf3;padding:11px 18px;border-radius:6px;cursor:pointer;font-size:14px">
-        Cancelar
-      </button>
-    </div>
-
-    <div id="connectStatus" style="display:none;font-size:13px;border-radius:6px;padding:12px"></div>
-  </div>
-</div>
 
 <!-- DATE FILTERS -->
 <div class="filters">
@@ -365,104 +345,104 @@
 <main class="main">
 
   <!-- KPI CARDS -->
-  <div class="kpi-grid" id="kpiGrid">
+  <div class="kpi-grid">
     <div class="kpi-card" style="--accent:var(--green)">
       <div class="kpi-label">Revenue</div>
       <div class="kpi-value" id="kpi-revenue">—</div>
-      <div class="kpi-sub" id="kpi-revenue-sub"></div>
+      <div class="kpi-sub"  id="kpi-revenue-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--red)">
       <div class="kpi-label">Ad Spend</div>
       <div class="kpi-value" id="kpi-adspend">—</div>
-      <div class="kpi-sub" id="kpi-adspend-sub"></div>
+      <div class="kpi-sub"  id="kpi-adspend-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--orange)">
       <div class="kpi-label">COGS</div>
       <div class="kpi-value" id="kpi-cogs">—</div>
-      <div class="kpi-sub" id="kpi-cogs-sub"></div>
+      <div class="kpi-sub"  id="kpi-cogs-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--purple)">
       <div class="kpi-label">Gross Profit</div>
       <div class="kpi-value" id="kpi-gross">—</div>
-      <div class="kpi-sub" id="kpi-gross-sub"></div>
+      <div class="kpi-sub"  id="kpi-gross-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--blue)">
       <div class="kpi-label">Net Profit</div>
       <div class="kpi-value" id="kpi-net">—</div>
-      <div class="kpi-sub" id="kpi-net-sub"></div>
+      <div class="kpi-sub"  id="kpi-net-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--teal)">
       <div class="kpi-label">Net Margin %</div>
       <div class="kpi-value" id="kpi-margin">—</div>
-      <div class="kpi-sub" id="kpi-margin-sub"></div>
+      <div class="kpi-sub"  id="kpi-margin-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--blue)">
       <div class="kpi-label">ROAS</div>
       <div class="kpi-value" id="kpi-roas">—</div>
-      <div class="kpi-sub" id="kpi-roas-sub">Break-even: —</div>
+      <div class="kpi-sub"  id="kpi-roas-sub">Break-even: —</div>
     </div>
     <div class="kpi-card" style="--accent:var(--orange)">
       <div class="kpi-label">CPA</div>
       <div class="kpi-value" id="kpi-cpa">—</div>
-      <div class="kpi-sub" id="kpi-cpa-sub"></div>
+      <div class="kpi-sub"  id="kpi-cpa-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--purple)">
       <div class="kpi-label">AOV</div>
       <div class="kpi-value" id="kpi-aov">—</div>
-      <div class="kpi-sub" id="kpi-aov-sub"></div>
+      <div class="kpi-sub"  id="kpi-aov-sub"></div>
     </div>
     <div class="kpi-card" style="--accent:var(--muted)">
       <div class="kpi-label">CTR</div>
       <div class="kpi-value" id="kpi-ctr">—</div>
-      <div class="kpi-sub" id="kpi-ctr-sub"></div>
+      <div class="kpi-sub"  id="kpi-ctr-sub"></div>
     </div>
   </div>
 
   <!-- ROW 1: Revenue/Spend/Profit + Orders -->
-  <div class="charts-grid">
+  <div class="charts-row col-2">
     <div class="chart-card">
       <div class="chart-title">Revenue · Ad Spend · Net Profit</div>
-      <div class="chart-wrap"><canvas id="chartMain" height="200"></canvas></div>
+      <canvas id="chartMain" height="190"></canvas>
     </div>
     <div class="chart-card">
       <div class="chart-title">Órdenes por día</div>
-      <div class="chart-wrap"><canvas id="chartOrders" height="200"></canvas></div>
+      <canvas id="chartOrders" height="190"></canvas>
     </div>
   </div>
 
   <!-- ROW 2: ROAS + Cost Breakdown -->
-  <div class="charts-grid">
+  <div class="charts-row col-2">
     <div class="chart-card">
       <div class="chart-title">ROAS diario</div>
-      <div class="chart-wrap"><canvas id="chartRoas" height="200"></canvas></div>
+      <canvas id="chartRoas" height="190"></canvas>
     </div>
-    <div class="chart-card">
+    <div class="chart-card" style="display:flex;flex-direction:column">
       <div class="chart-title">Desglose de costos</div>
-      <div class="chart-wrap" style="max-height:220px;display:flex;align-items:center;justify-content:center">
-        <canvas id="chartCostBreakdown" height="200"></canvas>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center">
+        <canvas id="chartCosts" height="190"></canvas>
       </div>
     </div>
   </div>
 
-  <!-- ROW 3: Net Margin + Revenue by product -->
-  <div class="charts-grid">
+  <!-- ROW 3: Net Margin + Revenue by Product -->
+  <div class="charts-row col-eq">
     <div class="chart-card">
       <div class="chart-title">Margen neto % diario</div>
-      <div class="chart-wrap"><canvas id="chartMargin" height="200"></canvas></div>
+      <canvas id="chartMargin" height="190"></canvas>
     </div>
-    <div class="chart-card">
+    <div class="chart-card" style="display:flex;flex-direction:column">
       <div class="chart-title">Revenue por producto</div>
-      <div class="chart-wrap" style="max-height:220px;display:flex;align-items:center;justify-content:center">
-        <canvas id="chartRevProduct" height="200"></canvas>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center">
+        <canvas id="chartRevProduct" height="190"></canvas>
       </div>
     </div>
   </div>
 
-  <!-- ROW 4: Profit by product (full) -->
-  <div class="charts-grid full">
+  <!-- ROW 4: Profit by Product (full width) -->
+  <div class="charts-row col-1">
     <div class="chart-card">
       <div class="chart-title">Profit por producto</div>
-      <div class="chart-wrap"><canvas id="chartProfitProduct" height="120"></canvas></div>
+      <canvas id="chartProfitProduct" height="110"></canvas>
     </div>
   </div>
 
@@ -470,9 +450,9 @@
   <div class="table-card">
     <div class="table-title">
       <span>Tabla de productos</span>
-      <span id="tableRowCount" style="color:var(--muted);font-size:12px;font-weight:400"></span>
+      <span id="tableCount" style="color:var(--muted);font-size:12px;font-weight:400"></span>
     </div>
-    <table id="productTable">
+    <table>
       <thead>
         <tr>
           <th data-col="name">Producto</th>
@@ -485,143 +465,53 @@
         </tr>
       </thead>
       <tbody id="productTableBody">
-        <tr><td colspan="7" class="no-data">Cargando datos…</td></tr>
+        <tr><td colspan="7" class="no-data">Cargando…</td></tr>
       </tbody>
     </table>
   </div>
 
 </main>
 
+<!-- CONNECT MODAL -->
+<div class="modal-backdrop" id="connectModal">
+  <div class="modal">
+    <h2>Conectar Shopify</h2>
+    <p>Crea una app personalizada en tu tienda para obtener el token permanente.</p>
+
+    <div class="steps-box">
+      <strong>Cómo obtener el token (3 minutos):</strong>
+      <ol>
+        <li>Shopify Admin → <strong>Configuración → Apps y canales de venta</strong></li>
+        <li>Click en <strong>Desarrollar apps</strong> → <strong>Crear una app</strong></li>
+        <li>Nombre: <em>Profit Calculator</em> → tab <strong>Configuración de la API Admin</strong></li>
+        <li>Activa <code>read_orders</code> y <code>read_products</code> → Guardar</li>
+        <li>Click <strong>Instalar app</strong> → tab <strong>Credenciales de API</strong></li>
+        <li>Copia el <strong>Token de acceso de la API de Admin</strong></li>
+      </ol>
+    </div>
+
+    <div class="field">
+      <label>¿Para qué tienda?</label>
+      <select id="modalStoreId"></select>
+    </div>
+    <div class="field">
+      <label>Dominio (ej: mitienda.myshopify.com)</label>
+      <input id="modalDomain" type="text" placeholder="mitienda.myshopify.com" />
+    </div>
+    <div class="field">
+      <label>Token de acceso (empieza con shpat_)</label>
+      <input id="modalToken" type="password" placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxx" style="font-family:monospace" />
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-primary" id="modalSubmit" onclick="doConnect()">Conectar →</button>
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+    </div>
+    <div class="modal-status" id="modalStatus"></div>
+  </div>
+</div>
+
 <script>
-// ── SHOPIFY TOKEN EXCHANGE ─────────────────────────────────────────────────────
-// App Bridge is loaded in <head> so window.shopify is ready when Shopify opens
-// this page inside its Admin iframe. We poll for it (max 4s) then get the token.
-(async function tryTokenExchange() {
-  const params = new URLSearchParams(window.location.search);
-  const shop   = params.get('shop');
-  const host   = params.get('host');
-  if (!shop || !host) return;
-
-  const bar = document.createElement('div');
-  bar.id = 'tx-bar';
-  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;padding:10px 20px;font-size:13px;font-family:monospace;display:flex;align-items:center;gap:8px;background:#1158c7;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5)';
-  const setBar = (msg, color) => {
-    bar.style.background = color || '#1158c7';
-    bar.innerHTML = msg + ' <button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer">×</button>';
-  };
-  document.body.prepend(bar);
-  setBar('🔄 Conectando con Shopify...');
-
-  // Poll for window.shopify — App Bridge sets it once the iframe channel is ready
-  let waited = 0;
-  while (!window.shopify && waited < 4000) {
-    await new Promise(r => setTimeout(r, 150));
-    waited += 150;
-  }
-
-  if (!window.shopify) {
-    setBar('⚠️ Abre el dashboard desde <strong>Shopify Admin → Apps → tu app</strong> — no funciona con URL directa.', '#9a5700');
-    return;
-  }
-
-  setBar('🔑 Obteniendo token...');
-  let idToken;
-  try {
-    idToken = await window.shopify.idToken();
-  } catch (e) {
-    setBar('❌ idToken falló: ' + e.message + ' · Abre desde Shopify Admin → Apps', '#b91c1c');
-    return;
-  }
-
-  if (!idToken) {
-    setBar('❌ idToken vacío · Abre desde Shopify Admin → Apps', '#b91c1c');
-    return;
-  }
-
-  setBar('🔄 Verificando con servidor...');
-  let resp, data;
-  try {
-    resp = await fetch('/auth/token-exchange', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shop, idToken })
-    });
-    data = await resp.json();
-  } catch (e) {
-    setBar('❌ Error de red: ' + e.message, '#b91c1c');
-    return;
-  }
-
-  if (!resp.ok || !data.token) {
-    setBar('❌ Shopify rechazó el token: ' + (data.error || JSON.stringify(data.details || data)), '#b91c1c');
-    return;
-  }
-
-  bar.style.background = '#1a7f37';
-  bar.innerHTML = `
-    ✅ <strong>¡Conectado!</strong> Copia en Railway → Variables:
-    <span style="background:#0d5c27;padding:3px 10px;border-radius:4px;margin:0 4px">TIENDA1_SHOPIFY_STORE = ${data.shop}</span>
-    <span style="background:#0d5c27;padding:3px 10px;border-radius:4px">TIENDA1_SHOPIFY_ACCESS_TOKEN = ${data.token}</span>
-    <button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer">×</button>
-  `;
-  loadData();
-})();
-
-// ── CONNECT MANUAL (fallback) ──────────────────────────────────────────────────
-function openConnect() {
-  const modal = document.getElementById('connectModal');
-  modal.style.display = 'flex';
-  const sel = document.getElementById('connectStoreId');
-  sel.innerHTML = '';
-  (state.stores.length ? state.stores : [{id:'tienda1',name:'tienda1'}]).forEach(s => {
-    const opt = document.createElement('option');
-    opt.value = s.id; opt.textContent = s.name + ' (' + s.id + ')';
-    sel.appendChild(opt);
-  });
-}
-
-function closeConnect() {
-  document.getElementById('connectModal').style.display = 'none';
-  document.getElementById('connectStatus').style.display = 'none';
-}
-
-async function doConnect() {
-  const storeId     = document.getElementById('connectStoreId').value.trim();
-  const shopDomain  = document.getElementById('connectDomain').value.trim();
-  const accessToken = document.getElementById('connectToken').value.trim();
-  const statusEl    = document.getElementById('connectStatus');
-  const btn         = document.getElementById('connectSubmit');
-  if (!shopDomain || !accessToken) {
-    statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
-    statusEl.textContent = 'Completa el dominio y el token.';
-    return;
-  }
-  btn.disabled = true; btn.textContent = 'Verificando...';
-  statusEl.style.cssText = 'display:block;background:#1c2128;color:#8b949e;border-radius:6px;padding:10px';
-  statusEl.textContent = 'Conectando...';
-  try {
-    const resp = await fetch('/api/connect-store', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storeId, shopDomain, accessToken })
-    });
-    const data = await resp.json();
-    if (!resp.ok || !data.success) {
-      statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
-      statusEl.textContent = '❌ ' + (data.error || 'Error');
-    } else {
-      const varLines = Object.entries(data.railwayVars || {}).map(([k,v]) => `${k} = ${v}`).join('\n');
-      statusEl.style.cssText = 'display:block;background:#0d2818;color:#3fb950;border-radius:6px;padding:10px';
-      statusEl.innerHTML = `✅ <strong>¡Conectado!</strong> ${data.shopName}<br><br><span style="color:#8b949e;font-size:12px">Copia en Railway → Variables:</span><br><code style="display:block;background:#0d1117;padding:8px;border-radius:4px;margin-top:6px;font-size:12px;white-space:pre;color:#e6edf3">${varLines}</code>`;
-      document.getElementById('connectBtn').style.display = 'none';
-      loadData();
-    }
-  } catch (e) {
-    statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
-    statusEl.textContent = '❌ Error de red: ' + e.message;
-  }
-  btn.disabled = false; btn.textContent = 'Conectar →';
-}
-
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const state = {
   store: 'global',
@@ -630,136 +520,107 @@ const state = {
   stores: [],
   charts: {},
   sortCol: 'units',
-  sortDir: -1,
-  currency: 'USD',
-  rate: 1,
-  breakEven: 2
+  sortDir: -1
 };
 
-// ── UTILS ─────────────────────────────────────────────────────────────────────
-const USD  = v => `$${fmt(v)}`;
-const PCT  = v => `${v >= 0 ? '' : ''}${v.toFixed(2)}%`;
-const X    = v => `${v.toFixed(2)}x`;
-const fmt  = v => Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmt0 = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
-const localFmt = (v, currency) => Number(v).toLocaleString('es-AR', { style:'currency', currency, maximumFractionDigits: 0 });
-const shortName = s => s.length > 22 ? s.slice(0, 20) + '…' : s;
+// ── FORMATTERS ────────────────────────────────────────────────────────────────
+const N  = v => Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+const N2 = v => Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const USD  = v => `$${N2(v)}`;
+const PCT  = v => `${(+v).toFixed(2)}%`;
+const X    = v => `${(+v).toFixed(2)}x`;
+const LC   = (v, cur) => Number(v).toLocaleString('es-AR', { style: 'currency', currency: cur, maximumFractionDigits: 0 });
+const trunc = (s, n = 24) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+const dayLabel = d => { const [,m,dd] = d.split('-'); return `${dd}/${m}`; };
 
-function setStatus(type) {
-  const dot = document.getElementById('statusDot');
-  dot.className = `status-dot ${type}`;
-}
-
-function setLastUpdated() {
-  const el = document.getElementById('lastUpdated');
-  el.textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-AR');
-}
-
-function showError(msgs) {
-  const el = document.getElementById('errorBanner');
-  const btn = document.getElementById('connectBtn');
-  if (!msgs || !msgs.length) {
-    el.classList.remove('visible');
-    btn.style.display = 'none';
-    return;
-  }
-  el.textContent = '⚠ ' + msgs.join(' · ');
-  el.classList.add('visible');
-  // Show "Conectar Shopify" button if credentials are missing
-  const needsShopify = msgs.some(m => m.includes('SHOPIFY_STORE') || m.includes('ACCESS_TOKEN') || m.includes('no configurado'));
-  btn.style.display = needsShopify ? '' : 'none';
-}
-
-// ── CHART HELPERS ─────────────────────────────────────────────────────────────
-const COLORS = {
-  green:  '#3fb950', red:  '#f85149', blue:   '#58a6ff',
-  orange: '#d29922', purple:'#bc8cff', teal:  '#39d353',
-  muted: '#8b949e'
+// ── CHART DEFAULTS ────────────────────────────────────────────────────────────
+const C = {
+  green: '#3fb950', red: '#f85149', blue: '#58a6ff',
+  orange: '#d29922', purple: '#bc8cff', teal: '#39d353', muted: '#8b949e'
 };
 
-function chartDefaults() {
-  Chart.defaults.color = '#8b949e';
-  Chart.defaults.borderColor = '#30363d';
-  Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-  Chart.defaults.font.size = 11;
-}
+Chart.defaults.color      = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+Chart.defaults.font.size   = 11;
 
 function destroyChart(key) {
   if (state.charts[key]) { state.charts[key].destroy(); delete state.charts[key]; }
 }
 
-function lineChart(id, labels, datasets) {
+function mkLine(id, labels, datasets) {
   destroyChart(id);
-  const ctx = document.getElementById(id).getContext('2d');
-  state.charts[id] = new Chart(ctx, {
+  state.charts[id] = new Chart(document.getElementById(id), {
     type: 'line',
     data: { labels, datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
+      responsive: true, maintainAspectRatio: true,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 14 } } },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 12 } } },
       scales: {
         x: { grid: { color: '#21262d' }, ticks: { maxTicksLimit: 10, maxRotation: 0 } },
-        y: { grid: { color: '#21262d' }, ticks: { callback: v => '$' + fmt0(v) } }
+        y: { grid: { color: '#21262d' }, ticks: { callback: v => '$' + N(v) } }
       }
     }
   });
 }
 
-function barChart(id, labels, datasets, opts = {}) {
+function mkBar(id, labels, datasets, opts = {}) {
   destroyChart(id);
-  const ctx = document.getElementById(id).getContext('2d');
-  state.charts[id] = new Chart(ctx, {
+  state.charts[id] = new Chart(document.getElementById(id), {
     type: 'bar',
     data: { labels, datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { display: opts.legend !== false, position: 'top', labels: { boxWidth: 10, padding: 14 } } },
+      responsive: true, maintainAspectRatio: true,
+      indexAxis: opts.horizontal ? 'y' : 'x',
+      plugins: { legend: { display: !!opts.legend, position: 'top', labels: { boxWidth: 10, padding: 12 } } },
       scales: {
-        x: { grid: { color: '#21262d' }, ticks: { maxTicksLimit: opts.maxTicks || 10, maxRotation: 0 } },
-        y: {
-          grid: { color: '#21262d' },
-          ticks: { callback: opts.yFmt || (v => '$' + fmt0(v)) },
-          ...(opts.yLine !== undefined ? {} : {})
-        }
-      },
-      ...(opts.indexAxis ? { indexAxis: opts.indexAxis } : {})
+        x: { grid: { color: '#21262d' }, ticks: { maxTicksLimit: opts.maxTicks || 10, maxRotation: 0, callback: opts.xFmt } },
+        y: { grid: { color: '#21262d' }, ticks: { callback: opts.yFmt || (v => '$' + N(v)) } }
+      }
     }
   });
 }
 
-function donutChart(id, labels, data, colors) {
+function mkDonut(id, labels, data, colors) {
   destroyChart(id);
-  const ctx = document.getElementById(id).getContext('2d');
-  state.charts[id] = new Chart(ctx, {
+  state.charts[id] = new Chart(document.getElementById(id), {
     type: 'doughnut',
     data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#161b22' }] },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      cutout: '65%',
+      responsive: true, maintainAspectRatio: true, cutout: '64%',
       plugins: {
         legend: { position: 'right', labels: { boxWidth: 10, padding: 10, font: { size: 11 } } },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${fmt(ctx.parsed)}` } }
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${N2(ctx.parsed)}` } }
       }
     }
   });
+}
+
+// ── STATUS ────────────────────────────────────────────────────────────────────
+function setStatus(type) { document.getElementById('statusDot').className = `status-dot ${type}`; }
+
+function showError(msgs) {
+  const el  = document.getElementById('errorBanner');
+  const btn = document.getElementById('connectBtn');
+  if (!msgs?.length) { el.classList.remove('visible'); btn.style.display = 'none'; return; }
+  el.textContent = '⚠ ' + msgs.join(' · ');
+  el.classList.add('visible');
+  const needsShopify = msgs.some(m => m.includes('SHOPIFY') || m.includes('no configurado'));
+  btn.style.display = needsShopify ? '' : 'none';
 }
 
 // ── DATA LOADING ──────────────────────────────────────────────────────────────
 async function loadStores() {
   try {
-    const res = await fetch('/api/stores');
-    const json = await res.json();
+    const json = await (await fetch('/api/stores')).json();
     const sel = document.getElementById('storeSelect');
     sel.innerHTML = '<option value="global">🌍 Vista Global</option>';
     for (const s of json.stores) {
-      const opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = `${s.name} (${s.currency})`;
-      sel.appendChild(opt);
+      const o = document.createElement('option');
+      o.value = s.id;
+      o.textContent = `${s.name} (${s.currency})`;
+      sel.appendChild(o);
     }
     state.stores = json.stores;
   } catch {}
@@ -769,151 +630,137 @@ async function loadData() {
   setStatus('loading');
   try {
     const res  = await fetch(`/api/data?store=${state.store}&range=${state.range}`);
-    const json = await res.json();
+    const data = await res.json();
+    if (!res.ok) { showError([data.error || 'Error']); setStatus('error'); return; }
 
-    if (!res.ok) { showError([json.error || 'Error al cargar datos']); setStatus('error'); return; }
-
-    state.data     = json;
-    state.currency = json.currency || 'USD';
-    state.rate     = json.exchange_rate || 1;
-    state.breakEven = json.break_even_roas || 2;
-
-    showError(json.errors && json.errors.length ? json.errors : null);
-    renderAll(json);
-    setLastUpdated();
-    setStatus(json.errors && json.errors.length ? 'error' : '');
-  } catch (err) {
-    showError([`No se pudo conectar con el servidor: ${err.message}`]);
+    state.data = data;
+    showError(data.errors?.length ? data.errors : null);
+    renderAll(data);
+    document.getElementById('lastUpdated').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-AR');
+    setStatus(data.errors?.length ? 'error' : '');
+  } catch (e) {
+    showError([`Sin conexión con el servidor: ${e.message}`]);
     setStatus('error');
   }
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
 function renderAll(d) {
-  renderKPIs(d.totals, d.currency, d.exchange_rate);
-  renderCharts(d.daily, d.totals, d.productTable, d.break_even_roas, d.currency, d.exchange_rate);
+  renderKPIs(d);
+  renderCharts(d);
   renderTable(d.productTable, d.currency, d.exchange_rate);
 }
 
-function kpiColor(el, value) {
-  el.parentElement.classList.remove('positive', 'negative');
-  if (value > 0)  el.parentElement.classList.add('positive');
-  if (value < 0)  el.parentElement.classList.add('negative');
+function renderKPIs(d) {
+  const t   = d.totals;
+  const cur = d.currency || 'USD';
+  const rate = d.exchange_rate || 1;
+  const showLocal = state.store !== 'global' && cur !== 'USD';
+  const be  = d.break_even_roas || 2;
+
+  const set = (id, val, sub, positive, negative) => {
+    document.getElementById(`kpi-${id}`).textContent = val;
+    document.getElementById(`kpi-${id}-sub`).textContent = sub || '';
+    const card = document.getElementById(`kpi-${id}`).parentElement;
+    card.classList.toggle('positive', !!positive);
+    card.classList.toggle('negative', !!negative);
+  };
+
+  set('revenue', USD(t.revenue),
+      showLocal ? LC(t.revenue_local, cur) : `${N(t.orders)} órdenes`);
+
+  set('adspend', USD(t.adSpend),
+      showLocal ? LC(t.adSpend * rate, cur) : '');
+
+  set('cogs', USD(t.cogs),
+      showLocal ? LC(t.cogs_local, cur) : '');
+
+  set('gross', USD(t.grossProfit),
+      showLocal ? LC(t.grossProfit * rate, cur) : '',
+      t.grossProfit > 0, t.grossProfit < 0);
+
+  set('net', USD(t.netProfit),
+      showLocal ? LC(t.netProfit * rate, cur) : '',
+      t.netProfit > 0, t.netProfit < 0);
+
+  set('margin', PCT(t.netMargin),
+      `Gross: ${PCT(t.revenue > 0 ? t.grossProfit / t.revenue * 100 : 0)}`,
+      t.netMargin > 0, t.netMargin < 0);
+
+  set('roas', X(t.roas),
+      `Break-even: ${X(be)}`,
+      t.roas >= be, t.roas > 0 && t.roas < be);
+
+  set('cpa', t.cpa > 0 ? USD(t.cpa) : '—',
+      `${N(t.purchases)} compras vía Meta`);
+
+  set('aov', t.aov > 0 ? USD(t.aov) : '—',
+      `${N(t.orders)} órdenes`);
+
+  set('ctr', PCT(t.ctr),
+      `${N(t.clicks)} clicks · ${N(t.impressions)} impresiones`);
 }
 
-function renderKPIs(t, currency, rate) {
-  const isGlobal = state.store === 'global';
-  const showLocal = !isGlobal && currency !== 'USD' && rate && rate !== 1;
+function renderCharts(d) {
+  const daily   = d.daily || [];
+  const prods   = d.productTable || [];
+  const t       = d.totals;
+  const be      = d.break_even_roas || 2;
+  const labels  = daily.map(d => dayLabel(d.date));
 
-  document.getElementById('kpi-revenue').textContent = USD(t.revenue);
-  document.getElementById('kpi-revenue-sub').textContent = showLocal ? localFmt(t.revenue_local || t.revenue * rate, currency) : '';
-
-  document.getElementById('kpi-adspend').textContent = USD(t.adSpend);
-  document.getElementById('kpi-adspend-sub').textContent = showLocal ? localFmt(t.adSpend_local || t.adSpend * rate, currency) : '';
-
-  document.getElementById('kpi-cogs').textContent = USD(t.cogs);
-  document.getElementById('kpi-cogs-sub').textContent = showLocal ? localFmt(t.cogs_local || t.cogs * rate, currency) : '';
-
-  const gross = document.getElementById('kpi-gross');
-  gross.textContent = USD(t.grossProfit);
-  gross.parentElement.classList.toggle('positive', t.grossProfit > 0);
-  gross.parentElement.classList.toggle('negative', t.grossProfit < 0);
-  document.getElementById('kpi-gross-sub').textContent = showLocal ? localFmt((t.cogs_local !== undefined ? t.revenue_local - t.cogs_local : t.grossProfit * rate), currency) : '';
-
-  const net = document.getElementById('kpi-net');
-  net.textContent = USD(t.netProfit);
-  net.parentElement.classList.toggle('positive', t.netProfit > 0);
-  net.parentElement.classList.toggle('negative', t.netProfit < 0);
-  document.getElementById('kpi-net-sub').textContent = showLocal ? localFmt(t.netProfit * rate, currency) : '';
-
-  const margin = document.getElementById('kpi-margin');
-  margin.textContent = PCT(t.netMargin);
-  margin.parentElement.classList.toggle('positive', t.netMargin > 0);
-  margin.parentElement.classList.toggle('negative', t.netMargin < 0);
-  document.getElementById('kpi-margin-sub').textContent = `Gross: ${PCT(t.revenue > 0 ? (t.grossProfit / t.revenue) * 100 : 0)}`;
-
-  const roasEl = document.getElementById('kpi-roas');
-  roasEl.textContent = X(t.roas);
-  roasEl.parentElement.classList.toggle('positive', t.roas >= state.breakEven);
-  roasEl.parentElement.classList.toggle('negative', t.roas > 0 && t.roas < state.breakEven);
-  document.getElementById('kpi-roas-sub').textContent = `Break-even: ${X(state.breakEven)}`;
-
-  document.getElementById('kpi-cpa').textContent  = t.cpa > 0 ? USD(t.cpa) : '—';
-  document.getElementById('kpi-cpa-sub').textContent = `${fmt0(t.purchases)} compras`;
-
-  document.getElementById('kpi-aov').textContent  = t.aov > 0 ? USD(t.aov) : '—';
-  document.getElementById('kpi-aov-sub').textContent = `${fmt0(t.orders)} órdenes`;
-
-  document.getElementById('kpi-ctr').textContent  = PCT(t.ctr);
-  document.getElementById('kpi-ctr-sub').textContent = `${fmt0(t.clicks)} clicks · ${fmt0(t.impressions)} impresiones`;
-}
-
-function renderCharts(daily, totals, products, breakEven, currency, rate) {
-  const labels = daily.map(d => {
-    const [,m,dd] = d.date.split('-');
-    return `${dd}/${m}`;
-  });
-
-  // 1. Revenue / AdSpend / NetProfit
-  lineChart('chartMain', labels, [
-    { label: 'Revenue',    data: daily.map(d => d.revenue),   borderColor: COLORS.green,  backgroundColor: 'rgba(63,185,80,.08)',   tension:.4, fill:true, pointRadius:2 },
-    { label: 'Ad Spend',  data: daily.map(d => d.adSpend),   borderColor: COLORS.red,    backgroundColor: 'rgba(248,81,73,.08)',  tension:.4, fill:true, pointRadius:2 },
-    { label: 'Net Profit',data: daily.map(d => d.netProfit), borderColor: COLORS.blue,   backgroundColor: 'rgba(88,166,255,.08)', tension:.4, fill:true, pointRadius:2 },
+  // 1. Revenue / Ad Spend / Net Profit
+  mkLine('chartMain', labels, [
+    { label: 'Revenue',    data: daily.map(x => x.revenue),   borderColor: C.green,  backgroundColor: 'rgba(63,185,80,.07)',  tension: .4, fill: true, pointRadius: 2 },
+    { label: 'Ad Spend',  data: daily.map(x => x.adSpend),   borderColor: C.red,    backgroundColor: 'rgba(248,81,73,.07)', tension: .4, fill: true, pointRadius: 2 },
+    { label: 'Net Profit',data: daily.map(x => x.netProfit), borderColor: C.blue,   backgroundColor: 'rgba(88,166,255,.07)',tension: .4, fill: true, pointRadius: 2 }
   ]);
 
-  // 2. Orders
-  barChart('chartOrders', labels, [
-    { label: 'Órdenes', data: daily.map(d => d.orders), backgroundColor: COLORS.blue + '99', borderRadius: 4 }
-  ], { yFmt: v => fmt0(v), legend: false });
+  // 2. Orders per day
+  mkBar('chartOrders', labels, [
+    { label: 'Órdenes', data: daily.map(x => x.orders), backgroundColor: C.blue + '99', borderRadius: 3 }
+  ], { yFmt: v => N(v) });
 
-  // 3. ROAS
-  const roasColors = daily.map(d => d.roas >= breakEven ? COLORS.green + 'cc' : COLORS.red + 'cc');
-  barChart('chartRoas', labels, [
-    { label: 'ROAS', data: daily.map(d => d.roas), backgroundColor: roasColors, borderRadius: 4 }
-  ], {
-    yFmt: v => v.toFixed(1) + 'x',
-    legend: false,
-    annotations: breakEven
-  });
-  // Add break-even line annotation manually
-  if (state.charts['chartRoas']) {
-    const chart = state.charts['chartRoas'];
-    const orig = chart.options.plugins.tooltip.callbacks || {};
-    chart.options.scales.y.ticks.callback = v => v.toFixed(1) + 'x';
-    chart.update('none');
-  }
+  // 3. ROAS diario with break-even line
+  mkBar('chartRoas', labels, [
+    {
+      type: 'bar',
+      label: 'ROAS',
+      data: daily.map(x => x.roas),
+      backgroundColor: daily.map(x => x.roas >= be ? C.green + 'cc' : C.red + 'cc'),
+      borderRadius: 3
+    },
+    {
+      type: 'line',
+      label: `Break-even (${be.toFixed(1)}x)`,
+      data: daily.map(() => be),
+      borderColor: C.orange,
+      borderWidth: 2,
+      borderDash: [5, 4],
+      pointRadius: 0,
+      fill: false
+    }
+  ], { yFmt: v => v.toFixed(1) + 'x', legend: true });
 
   // 4. Cost Breakdown donut
-  const cogs    = Math.max(0, totals.cogs);
-  const spend   = Math.max(0, totals.adSpend);
-  const profit  = Math.max(0, totals.netProfit);
-  const hasData = cogs + spend + profit > 0;
-  if (hasData) {
-    donutChart('chartCostBreakdown',
-      ['COGS', 'Ad Spend', 'Net Profit'],
-      [cogs, spend, profit],
-      [COLORS.orange, COLORS.red, COLORS.green]
-    );
-  }
+  const cogsV  = Math.max(0, t.cogs);
+  const spendV = Math.max(0, t.adSpend);
+  const profV  = Math.max(0, t.netProfit);
+  if (cogsV + spendV + profV > 0)
+    mkDonut('chartCosts', ['COGS', 'Ad Spend', 'Net Profit'], [cogsV, spendV, profV],
+            [C.orange, C.red, C.green]);
 
   // 5. Net Margin % line
   destroyChart('chartMargin');
-  const ctx5 = document.getElementById('chartMargin').getContext('2d');
-  state.charts['chartMargin'] = new Chart(ctx5, {
+  state.charts['chartMargin'] = new Chart(document.getElementById('chartMargin'), {
     type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Margen neto %',
-        data: daily.map(d => d.netMargin),
-        borderColor: COLORS.teal,
-        backgroundColor: 'rgba(57,211,83,.08)',
-        tension: .4, fill: true, pointRadius: 2
-      }]
-    },
+    data: { labels, datasets: [{
+      label: 'Margen neto %',
+      data: daily.map(x => x.netMargin),
+      borderColor: C.teal, backgroundColor: 'rgba(57,211,83,.07)',
+      tension: .4, fill: true, pointRadius: 2
+    }]},
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
+      responsive: true, maintainAspectRatio: true,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { color: '#21262d' }, ticks: { maxTicksLimit: 10, maxRotation: 0 } },
@@ -922,38 +769,34 @@ function renderCharts(daily, totals, products, breakEven, currency, rate) {
     }
   });
 
-  // 6. Revenue by product (top 8)
-  const top8 = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
-  if (top8.length) {
-    donutChart('chartRevProduct',
-      top8.map(p => shortName(p.name)),
+  // 6. Revenue by product (donut, top 8)
+  const top8 = [...prods].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  if (top8.length)
+    mkDonut('chartRevProduct',
+      top8.map(p => trunc(p.name, 22)),
       top8.map(p => p.revenue),
       ['#58a6ff','#3fb950','#bc8cff','#d29922','#f85149','#39d353','#ff7b72','#79c0ff']
     );
-  }
 
   // 7. Profit by product (horizontal bar, top 10)
-  const top10 = [...products].sort((a, b) => b.grossProfit - a.grossProfit).slice(0, 10);
+  const top10 = [...prods].sort((a, b) => b.grossProfit - a.grossProfit).slice(0, 10);
   destroyChart('chartProfitProduct');
-  const ctx7 = document.getElementById('chartProfitProduct').getContext('2d');
-  state.charts['chartProfitProduct'] = new Chart(ctx7, {
+  state.charts['chartProfitProduct'] = new Chart(document.getElementById('chartProfitProduct'), {
     type: 'bar',
     data: {
-      labels: top10.map(p => shortName(p.name)),
+      labels: top10.map(p => trunc(p.name)),
       datasets: [{
-        label: 'Gross Profit (USD)',
+        label: 'Gross Profit',
         data: top10.map(p => p.grossProfit),
-        backgroundColor: top10.map(p => p.grossProfit >= 0 ? COLORS.green + 'cc' : COLORS.red + 'cc'),
-        borderRadius: 4
+        backgroundColor: top10.map(p => p.grossProfit >= 0 ? C.green + 'cc' : C.red + 'cc'),
+        borderRadius: 3
       }]
     },
     options: {
-      indexAxis: 'y',
-      responsive: true,
-      maintainAspectRatio: true,
+      indexAxis: 'y', responsive: true, maintainAspectRatio: true,
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid: { color: '#21262d' }, ticks: { callback: v => '$' + fmt0(v) } },
+        x: { grid: { color: '#21262d' }, ticks: { callback: v => '$' + N(v) } },
         y: { grid: { color: '#21262d' } }
       }
     }
@@ -963,53 +806,45 @@ function renderCharts(daily, totals, products, breakEven, currency, rate) {
 function renderTable(products, currency, rate) {
   const showLocal = state.store !== 'global' && currency !== 'USD';
   const tbody = document.getElementById('productTableBody');
-  document.getElementById('tableRowCount').textContent = `${products.length} productos`;
+  document.getElementById('tableCount').textContent = `${products.length} productos`;
 
   if (!products.length) {
     tbody.innerHTML = '<tr><td colspan="7" class="no-data">Sin datos para este período</td></tr>';
     return;
   }
 
-  const sorted = [...products].sort((a, b) => state.sortDir * (b[state.sortCol] - a[state.sortCol]));
+  const sorted = [...products].sort((a, b) => {
+    const av = a[state.sortCol], bv = b[state.sortCol];
+    if (typeof av === 'string') return state.sortDir * av.localeCompare(bv);
+    return state.sortDir * ((bv || 0) - (av || 0));
+  });
 
   tbody.innerHTML = sorted.map(p => `
     <tr>
-      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${p.name}</td>
       <td><code style="color:var(--muted);font-size:11px">${p.sku || '—'}</code></td>
-      <td><span class="badge blue">${fmt0(p.units)}</span></td>
-      <td>
-        ${USD(p.revenue)}
-        ${showLocal ? `<span class="local-val">${localFmt(p.revenue_local || p.revenue * rate, currency)}</span>` : ''}
-      </td>
-      <td>
-        ${USD(p.cogs)}
-        ${showLocal ? `<span class="local-val">${localFmt(p.cogs_local || p.cogs * rate, currency)}</span>` : ''}
-      </td>
-      <td class="${p.grossProfit >= 0 ? 'positive' : 'negative'}">
-        <span class="badge ${p.grossProfit >= 0 ? 'green' : 'red'}">${USD(p.grossProfit)}</span>
-      </td>
+      <td><span class="badge blue">${N(p.units)}</span></td>
+      <td>${USD(p.revenue)}${showLocal ? `<span class="local-val">${LC(p.revenue_local, currency)}</span>` : ''}</td>
+      <td>${USD(p.cogs)}${showLocal ? `<span class="local-val">${LC(p.cogs_local, currency)}</span>` : ''}</td>
+      <td><span class="badge ${p.grossProfit >= 0 ? 'green' : 'red'}">${USD(p.grossProfit)}</span></td>
       <td>${PCT(p.margin)}</td>
     </tr>
   `).join('');
 }
 
 // ── TABLE SORT ────────────────────────────────────────────────────────────────
-document.querySelectorAll('#productTable th[data-col]').forEach(th => {
+document.querySelectorAll('th[data-col]').forEach(th => {
   th.addEventListener('click', () => {
     const col = th.dataset.col;
-    if (state.sortCol === col) {
-      state.sortDir *= -1;
-    } else {
-      state.sortCol = col;
-      state.sortDir = -1;
-    }
-    document.querySelectorAll('#productTable th').forEach(t => t.classList.remove('sorted'));
+    state.sortDir = state.sortCol === col ? state.sortDir * -1 : -1;
+    state.sortCol = col;
+    document.querySelectorAll('th').forEach(t => t.classList.remove('sorted'));
     th.classList.add('sorted');
-    if (state.data) renderTable(state.data.productTable, state.currency, state.rate);
+    if (state.data) renderTable(state.data.productTable, state.data.currency, state.data.exchange_rate);
   });
 });
 
-// ── EVENT HANDLERS ────────────────────────────────────────────────────────────
+// ── RANGE BUTTONS ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.range-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
@@ -1024,11 +859,69 @@ document.getElementById('storeSelect').addEventListener('change', e => {
   loadData();
 });
 
-// ── INIT ──────────────────────────────────────────────────────────────────────
-chartDefaults();
-loadStores().then(() => loadData());
+// ── CONNECT MODAL ─────────────────────────────────────────────────────────────
+function openModal() {
+  const modal = document.getElementById('connectModal');
+  modal.classList.add('open');
+  const sel = document.getElementById('modalStoreId');
+  sel.innerHTML = (state.stores.length ? state.stores : [{id:'tienda1',name:'tienda1'}])
+    .map(s => `<option value="${s.id}">${s.name} (${s.id})</option>`).join('');
+}
 
-// Auto-refresh every 5 minutes
+function closeModal() {
+  document.getElementById('connectModal').classList.remove('open');
+  document.getElementById('modalStatus').style.display = 'none';
+}
+
+async function doConnect() {
+  const storeId     = document.getElementById('modalStoreId').value.trim();
+  const shopDomain  = document.getElementById('modalDomain').value.trim();
+  const accessToken = document.getElementById('modalToken').value.trim();
+  const statusEl    = document.getElementById('modalStatus');
+  const btn         = document.getElementById('modalSubmit');
+
+  if (!shopDomain || !accessToken) {
+    statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
+    statusEl.textContent = 'Completa el dominio y el token.';
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Verificando…';
+  statusEl.style.cssText = 'display:block;background:var(--surface2);color:var(--muted);border-radius:6px;padding:10px';
+  statusEl.textContent = 'Conectando…';
+
+  try {
+    const resp = await fetch('/api/connect-store', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeId, shopDomain, accessToken })
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || !data.success) {
+      statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
+      statusEl.textContent = '❌ ' + (data.error || 'Error desconocido');
+    } else {
+      const lines = Object.entries(data.railwayVars || {}).map(([k,v]) => `${k} = ${v}`).join('\n');
+      statusEl.style.cssText = 'display:block;background:#0d2818;color:#3fb950;border-radius:6px;padding:10px';
+      statusEl.innerHTML = `✅ <strong>¡Conectado!</strong> ${data.shopName}<br><br>
+        <span style="color:var(--muted);font-size:11px">Copia en Railway → Variables:</span><br>
+        <code style="display:block;background:#0d1117;padding:8px;border-radius:4px;margin-top:6px;font-size:12px;white-space:pre;color:#e6edf3">${lines}</code>`;
+      loadData();
+    }
+  } catch (e) {
+    statusEl.style.cssText = 'display:block;background:#3d1515;color:#f85149;border-radius:6px;padding:10px';
+    statusEl.textContent = '❌ Error de red: ' + e.message;
+  }
+
+  btn.disabled = false; btn.textContent = 'Conectar →';
+}
+
+document.getElementById('connectModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+loadStores().then(() => loadData());
 setInterval(loadData, 5 * 60 * 1000);
 </script>
 </body>

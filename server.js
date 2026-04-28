@@ -3,197 +3,296 @@ const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
-// url module not needed — using built-in URL class
 
-// ── CONFIG ────────────────────────────────────────────────────────────────────
+// ── ENV ───────────────────────────────────────────────────────────────────────
+(function loadEnv() {
+  const file = path.join(__dirname, '.env');
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    const t = line.trim();
+    if (!t || t[0] === '#') continue;
+    const i = t.indexOf('=');
+    if (i < 0) continue;
+    const k = t.slice(0, i).trim();
+    const v = t.slice(i + 1).trim().replace(/^["']|["']$/g, '');
+    if (!process.env[k]) process.env[k] = v;
+  }
+})();
 
-const CONFIG_PATH = path.join(__dirname, 'stores.json');
-let CONFIG = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-
-// Reload config without restart (useful for Railway env changes)
-function reloadConfig() {
-  try { CONFIG = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch {}
+function loadStores() {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, 'stores.json'), 'utf8'));
 }
 
-const PORT = process.env.PORT || 3000;
-
-// ── ENV HELPERS ───────────────────────────────────────────────────────────────
-
 function env(storeId, key) {
-  const prefix = storeId.toUpperCase().replace(/-/g, '_').replace(/\./g, '_');
+  const prefix = storeId.toUpperCase().replace(/[^A-Z0-9]/g, '_');
   return (process.env[`${prefix}_${key}`] || '').trim();
 }
 
-// ── HTTP HELPER ───────────────────────────────────────────────────────────────
+// ── TOKEN CACHE ───────────────────────────────────────────────────────────────
+// Refreshed Meta tokens are persisted here so they survive restarts
+const TOKEN_FILE = path.join(__dirname, 'tokens.json');
 
-function apiRequest(options, body) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(data), headers: res.headers }); }
-        catch { resolve({ status: res.statusCode, body: data, headers: res.headers }); }
-      });
-    });
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Request timeout')); });
-    req.on('error', reject);
-    if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
-    req.end();
-  });
+function readTokens() {
+  try { return JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8')); }
+  catch { return {}; }
 }
 
-// ── DATE HELPERS ──────────────────────────────────────────────────────────────
+function writeTokens(t) {
+  try { fs.writeFileSync(TOKEN_FILE, JSON.stringify(t, null, 2)); } catch {}
+}
 
-function todayInTimezone(timezone) {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(now);
-  const y = parts.find(p => p.type === 'year').value;
-  const m = parts.find(p => p.type === 'month').value;
-  const d = parts.find(p => p.type === 'day').value;
-  return `${y}-${m}-${d}`;
+function getMetaToken(storeId) {
+  return readTokens()[storeId]?.meta_token || env(storeId, 'META_ACCESS_TOKEN');
+}
+
+// ── DATES ─────────────────────────────────────────────────────────────────────
+function localDate(tz) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
 }
 
 function addDays(dateStr, n) {
   const d = new Date(dateStr + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().split('T')[0];
+  return d.toISOString().slice(0, 10);
 }
 
-function firstDayOfMonth(dateStr) {
-  return dateStr.slice(0, 7) + '-01';
-}
-
-function lastDayOfPrevMonth(dateStr) {
-  const [y, m] = dateStr.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1, 0));
-  return d.toISOString().split('T')[0];
-}
-
-function firstDayOfPrevMonth(dateStr) {
-  const [y, m] = dateStr.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 2, 1));
-  return d.toISOString().split('T')[0];
-}
-
-function getDateRange(range, timezone) {
-  const tz   = timezone || 'UTC';
-  const today = todayInTimezone(tz);
+function getDateRange(range, tz = 'UTC') {
+  const today     = localDate(tz);
   const yesterday = addDays(today, -1);
 
-  switch (range) {
-    case 'today':       return { start: today,               end: today };
-    case 'yesterday':   return { start: yesterday,           end: yesterday };
-    case '3d':          return { start: addDays(yesterday, -2), end: yesterday };
-    case '7d':          return { start: addDays(yesterday, -6), end: yesterday };
-    case '14d':         return { start: addDays(yesterday,-13), end: yesterday };
-    case '30d':         return { start: addDays(yesterday,-29), end: yesterday };
-    case 'this_month':  return { start: firstDayOfMonth(today), end: today };
-    case 'last_month':  return { start: firstDayOfPrevMonth(today), end: lastDayOfPrevMonth(today) };
-    case 'max':         return { start: addDays(yesterday,-89), end: yesterday };
-    default:            return { start: today,               end: today };
-  }
+  const prevMonth = (() => {
+    const [y, m] = today.split('-').map(Number);
+    const pm  = m === 1 ? 12 : m - 1;
+    const py  = m === 1 ? y - 1 : y;
+    const pms = String(pm).padStart(2, '0');
+    const lastDay = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+    return {
+      start: `${py}-${pms}-01`,
+      end:   `${py}-${pms}-${String(lastDay).padStart(2, '0')}`
+    };
+  })();
+
+  const map = {
+    today:      { start: today,                   end: today },
+    yesterday:  { start: yesterday,               end: yesterday },
+    '3d':       { start: addDays(yesterday, -2),  end: yesterday },
+    '7d':       { start: addDays(yesterday, -6),  end: yesterday },
+    '14d':      { start: addDays(yesterday, -13), end: yesterday },
+    '30d':      { start: addDays(yesterday, -29), end: yesterday },
+    this_month: { start: today.slice(0, 7) + '-01', end: today },
+    last_month: prevMonth,
+    max:        { start: '2020-01-01',            end: yesterday }
+  };
+
+  return map[range] || map['7d'];
 }
 
-function dateRange(start, end) {
+function datesInRange(start, end) {
   const dates = [];
   const s = new Date(start + 'T12:00:00Z');
   const e = new Date(end   + 'T12:00:00Z');
-  for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
-    dates.push(d.toISOString().split('T')[0]);
-  }
+  for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1))
+    dates.push(d.toISOString().slice(0, 10));
   return dates;
 }
 
-// ── PRODUCT MATCHING ──────────────────────────────────────────────────────────
+// ── HTTP HELPER ───────────────────────────────────────────────────────────────
+function apiGet(urlStr, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlStr);
+    const req = https.request({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      method: 'GET',
+      headers: { 'User-Agent': 'ProfitCalculator/2.0', ...headers }
+    }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, headers: res.headers, body: data }); }
+      });
+    });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
+function apiPost(urlStr, body, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const u   = new URL(urlStr);
+    const str = typeof body === 'string' ? body : JSON.stringify(body);
+    const req = https.request({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(str),
+        'User-Agent': 'ProfitCalculator/2.0',
+        ...extraHeaders
+      }
+    }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.on('error', reject);
+    req.write(str);
+    req.end();
+  });
+}
+
+// ── SHOPIFY ───────────────────────────────────────────────────────────────────
+async function fetchShopifyOrders(storeId, start, end) {
+  const store = env(storeId, 'SHOPIFY_STORE');
+  const token = env(storeId, 'SHOPIFY_ACCESS_TOKEN');
+
+  if (!store || !token)
+    return { orders: [], error: `Shopify no configurado (${storeId.toUpperCase()}_SHOPIFY_STORE / _ACCESS_TOKEN)` };
+
+  const orders = [];
+  let nextUrl  = `https://${store}.myshopify.com/admin/api/2024-01/orders.json?` + new URLSearchParams({
+    limit: '250', status: 'any', financial_status: 'paid',
+    created_at_min: `${start}T00:00:00Z`,
+    created_at_max: `${end}T23:59:59Z`,
+    fields: 'id,created_at,total_price,refunds,line_items'
+  });
+
+  while (nextUrl) {
+    let res;
+    try { res = await apiGet(nextUrl, { 'X-Shopify-Access-Token': token }); }
+    catch (e) { return { orders, error: `Shopify: ${e.message}` }; }
+
+    if (res.status === 401) return { orders: [], error: 'Shopify: token inválido (401)' };
+    if (res.status !== 200) return { orders, error: `Shopify API: status ${res.status}` };
+
+    const batch = res.body.orders || [];
+    orders.push(...batch);
+
+    const link = res.headers.link || '';
+    const next = link.match(/<([^>]+)>;\s*rel="next"/);
+    nextUrl = (next && batch.length === 250) ? next[1] : null;
+  }
+
+  return { orders };
+}
+
+// ── META ADS ─────────────────────────────────────────────────────────────────
+async function refreshMetaTokenIfNeeded(storeId) {
+  const token  = getMetaToken(storeId);
+  const appId  = env(storeId, 'META_APP_ID');
+  const secret = env(storeId, 'META_APP_SECRET');
+  if (!token || !appId || !secret) return;
+
+  try {
+    const { body } = await apiGet(
+      `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(token)}&access_token=${appId}|${secret}`
+    );
+    if (!body?.data?.is_valid || !body.data.expires_at) return;
+
+    const daysLeft = (body.data.expires_at * 1000 - Date.now()) / 86400000;
+    if (daysLeft >= 7) return;
+
+    console.log(`[${storeId}] Meta token vence en ${daysLeft.toFixed(0)} días — renovando...`);
+    const { body: r } = await apiGet(
+      `https://graph.facebook.com/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${secret}&fb_exchange_token=${encodeURIComponent(token)}`
+    );
+
+    if (r.access_token) {
+      const cache = readTokens();
+      cache[storeId] = { meta_token: r.access_token, refreshed_at: new Date().toISOString() };
+      writeTokens(cache);
+      console.log(`[${storeId}] Meta token renovado (nuevo: ${r.access_token.slice(0, 20)}…)`);
+    }
+  } catch (e) {
+    console.error(`[${storeId}] Meta refresh falló:`, e.message);
+  }
+}
+
+async function fetchMetaAds(storeId, start, end) {
+  const token     = getMetaToken(storeId);
+  const accountId = env(storeId, 'META_AD_ACCOUNT_ID');
+
+  if (!token || !accountId)
+    return { data: [], error: `Meta Ads no configurado (${storeId.toUpperCase()}_META_ACCESS_TOKEN / _META_AD_ACCOUNT_ID)` };
+
+  const actId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+  const url   = `https://graph.facebook.com/v19.0/${actId}/insights?` + new URLSearchParams({
+    fields: 'spend,impressions,clicks,actions,date_start',
+    time_range: JSON.stringify({ since: start, until: end }),
+    time_increment: '1',
+    limit: '365',
+    access_token: token
+  });
+
+  let res;
+  try { res = await apiGet(url); }
+  catch (e) { return { data: [], error: `Meta: ${e.message}` }; }
+
+  if (res.status !== 200) {
+    const msg = res.body?.error?.message || `status ${res.status}`;
+    return { data: [], error: `Meta API: ${msg}` };
+  }
+
+  return { data: res.body.data || [] };
+}
+
+// ── PRODUCT MATCHING ──────────────────────────────────────────────────────────
 function matchProduct(title, cfg) {
   const t = (title || '').toLowerCase();
-  const needle = (cfg.match || '').toLowerCase();
-  if (!t.includes(needle)) return false;
-
-  if (cfg.match_exclude && cfg.match_exclude.length) {
-    for (const x of cfg.match_exclude) {
-      if (t.includes(x.toLowerCase())) return false;
-    }
-  }
-  if (cfg.match_include && cfg.match_include.length) {
-    for (const inc of cfg.match_include) {
-      if (t.includes(inc.toLowerCase())) return true;
-    }
-    return false;
-  }
+  if (!t.includes((cfg.match || '').toLowerCase())) return false;
+  if (cfg.match_exclude?.some(x => t.includes(x.toLowerCase()))) return false;
+  if (cfg.match_include?.length && !cfg.match_include.every(x => t.includes(x.toLowerCase()))) return false;
   return true;
 }
 
 function tierCost(tiers, qty) {
-  for (const tier of tiers) {
-    if (qty >= tier.min && (tier.max === null || tier.max === undefined || qty <= tier.max)) {
-      return tier.cost_per_unit !== undefined ? tier.cost_per_unit * qty : (tier.cost || 0);
-    }
-  }
-  return 0;
+  const tier = tiers.find(t => qty >= t.min && (t.max == null || qty <= t.max));
+  return tier ? tier.cost : (tiers.at(-1)?.cost || 0);
 }
 
-// ── COGS CALCULATION ──────────────────────────────────────────────────────────
+// ── COGS ─────────────────────────────────────────────────────────────────────
+function calcOrderCOGS(order, products) {
+  const lineItems = order.line_items || [];
 
-function calcOrderCOGS(order, storeConfig) {
-  const products  = storeConfig.products || [];
-  const lineItems = order.line_items    || [];
-
-  // Identify matched products in this order
-  const matched = {}; // prodId → { config, quantity }
-
+  // Group matched products and sum quantities
+  const matched = new Map();
   for (const item of lineItems) {
-    for (const cfg of products) {
-      if (matchProduct(item.title, cfg)) {
-        if (!matched[cfg.id]) matched[cfg.id] = { cfg, qty: 0 };
-        matched[cfg.id].qty += parseInt(item.quantity, 10) || 1;
-        break;
-      }
-    }
+    const cfg = products.find(p => matchProduct(item.title, p));
+    if (!cfg) continue;
+    const prev = matched.get(cfg.id);
+    matched.set(cfg.id, { cfg, qty: (prev?.qty || 0) + (parseInt(item.quantity) || 1) });
   }
 
-  // Main product quantity (for gift limits)
-  let mainQty = 0;
-  for (const [, v] of Object.entries(matched)) {
-    if (v.cfg.type === 'main') { mainQty = v.qty; break; }
-  }
+  const mainQty = [...matched.values()].find(m => m.cfg.type === 'main')?.qty || 0;
 
   let total = 0;
   const breakdown = [];
 
-  for (const [id, { cfg, qty }] of Object.entries(matched)) {
+  for (const [id, { cfg, qty }] of matched) {
     let cost = 0;
-
     switch (cfg.type) {
-      case 'main': {
+      case 'main':
         cost = cfg.tiers ? tierCost(cfg.tiers, qty) : (cfg.cost_per_unit || 0) * qty;
         break;
-      }
-      case 'gift': {
-        const effectiveQty = Math.min(qty, mainQty);
-        cost = (cfg.cost_per_unit || 0) * effectiveQty;
+      case 'gift':
+        cost = (cfg.cost_per_unit || 0) * Math.min(qty, mainQty);
         break;
-      }
-      case 'fixed': {
+      case 'fixed':
         cost = cfg.tiers ? tierCost(cfg.tiers, qty) : (cfg.cost_per_unit || 0) * qty;
         break;
-      }
-      case 'standalone_with_main_discount': {
-        const withMain = mainQty > 0;
-        const unitCost = withMain ? (cfg.cost_with_main || cfg.cost_per_unit || 0)
-                                  : (cfg.cost_standalone || cfg.cost_per_unit || 0);
-        cost = unitCost * qty;
+      case 'standalone_with_main_discount':
+        cost = (mainQty > 0 ? (cfg.cost_with_main || 0) : (cfg.cost_standalone || 0)) * qty;
         break;
-      }
       default:
         cost = (cfg.cost_per_unit || 0) * qty;
     }
-
     total += cost;
     breakdown.push({ id, qty, cost });
   }
@@ -201,202 +300,61 @@ function calcOrderCOGS(order, storeConfig) {
   return { total, breakdown };
 }
 
-// ── SHOPIFY API ───────────────────────────────────────────────────────────────
-
-async function fetchShopifyOrders(storeId, start, end) {
-  const store = env(storeId, 'SHOPIFY_STORE');
-  const token = tokenStore[store] || env(storeId, 'SHOPIFY_ACCESS_TOKEN');
-
-  if (!store || !token) {
-    return { orders: [], error: `Shopify no configurado (falta ${storeId.toUpperCase()}_SHOPIFY_STORE o _ACCESS_TOKEN)` };
-  }
-
-  const orders   = [];
-  let pageInfo   = null;
-  let hasNext    = true;
-
-  while (hasNext) {
-    let queryPath;
-    if (pageInfo) {
-      queryPath = `/admin/api/2024-01/orders.json?limit=250&page_info=${encodeURIComponent(pageInfo)}`;
-    } else {
-      queryPath = `/admin/api/2024-01/orders.json?limit=250&status=any`
-        + `&financial_status=paid`
-        + `&created_at_min=${start}T00:00:00-00:00`
-        + `&created_at_max=${end}T23:59:59-00:00`;
-    }
-
-    let res;
-    try {
-      res = await apiRequest({
-        hostname: `${store}.myshopify.com`,
-        path: queryPath,
-        method: 'GET',
-        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
-      });
-    } catch (e) {
-      return { orders, error: `Shopify request failed: ${e.message}` };
-    }
-
-    if (res.status === 401) return { orders: [], error: 'Shopify: token inválido (401)' };
-    if (res.status !== 200) return { orders, error: `Shopify API error ${res.status}` };
-
-    const batch = res.body.orders || [];
-    orders.push(...batch);
-
-    const link = res.headers.link || '';
-    const nextMatch = link.match(/<[^>]*[?&]page_info=([^>&"]+)[^>]*>;\s*rel="next"/);
-    if (nextMatch && batch.length === 250) {
-      pageInfo = nextMatch[1];
-    } else {
-      hasNext = false;
-    }
-  }
-
-  return { orders };
-}
-
-// ── META ADS API ──────────────────────────────────────────────────────────────
-
-async function tryRefreshMetaToken(storeId) {
-  const token     = env(storeId, 'META_ACCESS_TOKEN');
-  const appId     = env(storeId, 'META_APP_ID');
-  const appSecret = env(storeId, 'META_APP_SECRET');
-  if (!token || !appId || !appSecret) return;
-
-  try {
-    const debug = await apiRequest({
-      hostname: 'graph.facebook.com',
-      path: `/debug_token?input_token=${encodeURIComponent(token)}&access_token=${appId}|${appSecret}`,
-      method: 'GET'
-    });
-
-    if (debug.status !== 200 || !debug.body.data) return;
-    const { expires_at, is_valid } = debug.body.data;
-    if (!is_valid || !expires_at) return;
-
-    const daysLeft = (expires_at * 1000 - Date.now()) / 86400000;
-    if (daysLeft < 7) {
-      const ref = await apiRequest({
-        hostname: 'graph.facebook.com',
-        path: `/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${encodeURIComponent(token)}`,
-        method: 'GET'
-      });
-      if (ref.body.access_token) {
-        console.log(`[${storeId}] Meta token renovado (expiraba en ${Math.round(daysLeft)} días)`);
-        // Note: In production, persist this new token to .env or a secrets store
-      }
-    }
-  } catch {}
-}
-
-async function fetchMetaAds(storeId, start, end) {
-  const token     = env(storeId, 'META_ACCESS_TOKEN');
-  const adAccount = env(storeId, 'META_AD_ACCOUNT_ID');
-
-  if (!token || !adAccount) {
-    return { data: [], error: `Meta Ads no configurado (falta ${storeId.toUpperCase()}_META_ACCESS_TOKEN o _AD_ACCOUNT_ID)` };
-  }
-
-  const accountId = adAccount.startsWith('act_') ? adAccount : `act_${adAccount}`;
-  const fields    = 'spend,impressions,clicks,actions,action_values';
-  const timeRange = encodeURIComponent(JSON.stringify({ since: start, until: end }));
-  const queryPath = `/v19.0/${accountId}/insights?fields=${fields}&time_range=${timeRange}&time_increment=1&limit=500&access_token=${encodeURIComponent(token)}`;
-
-  let res;
-  try {
-    res = await apiRequest({ hostname: 'graph.facebook.com', path: queryPath, method: 'GET' });
-  } catch (e) {
-    return { data: [], error: `Meta request failed: ${e.message}` };
-  }
-
-  if (res.status === 190 || (res.body.error && res.body.error.code === 190)) {
-    return { data: [], error: 'Meta: token expirado o inválido' };
-  }
-  if (res.status !== 200) {
-    const msg = res.body.error ? res.body.error.message : `status ${res.status}`;
-    return { data: [], error: `Meta API error: ${msg}` };
-  }
-
-  return { data: res.body.data || [] };
-}
-
 // ── DATA PROCESSING ───────────────────────────────────────────────────────────
+function processData(orders, metaData, store, start, end) {
+  const rate     = store.exchange_rate || 1;
+  const products = store.products || [];
 
-function processStoreData(orders, metaData, storeConfig, start, end) {
-  const rate = storeConfig.exchange_rate || 1;
-
-  // Initialize daily buckets for every date in range
   const daily = {};
-  for (const d of dateRange(start, end)) {
-    daily[d] = {
-      date: d, revenue: 0, revenue_local: 0,
-      orders: 0, cogs: 0, cogs_local: 0,
-      adSpend: 0, adSpend_local: 0,
-      impressions: 0, clicks: 0, purchases: 0
-    };
+  for (const d of datesInRange(start, end)) {
+    daily[d] = { date: d,
+      revenue: 0, revenue_local: 0, cogs: 0, cogs_local: 0,
+      adSpend: 0, orders: 0, impressions: 0, clicks: 0, purchases: 0 };
   }
 
-  const productMap = {}; // title → stats
+  const productMap = {};
 
   for (const order of orders) {
-    const d = order.created_at.split('T')[0];
+    const d = order.created_at.slice(0, 10);
     if (!daily[d]) continue;
 
-    const revenueLocal = parseFloat(order.total_price) || 0;
-    const revenueUSD   = revenueLocal / rate;
+    const revenueLocal          = parseFloat(order.total_price) || 0;
+    const { total: cogsLocal, breakdown } = calcOrderCOGS(order, products);
 
-    const { total: cogsLocal, breakdown } = calcOrderCOGS(order, storeConfig);
-    const cogsUSD = cogsLocal / rate;
-
-    daily[d].revenue       += revenueUSD;
+    daily[d].revenue       += revenueLocal / rate;
     daily[d].revenue_local += revenueLocal;
-    daily[d].orders        += 1;
-    daily[d].cogs          += cogsUSD;
+    daily[d].cogs          += cogsLocal / rate;
     daily[d].cogs_local    += cogsLocal;
+    daily[d].orders        += 1;
 
-    // Product-level stats
-    for (const item of (order.line_items || [])) {
+    for (const item of order.line_items || []) {
       const key = item.title || 'Sin nombre';
-      if (!productMap[key]) {
+      if (!productMap[key])
         productMap[key] = { name: key, sku: item.sku || '', units: 0, revenue: 0, revenue_local: 0, cogs: 0, cogs_local: 0 };
-      }
-      const qty = parseInt(item.quantity, 10) || 1;
-      const itemRevLocal = parseFloat(item.price) * qty;
-      productMap[key].units        += qty;
-      productMap[key].revenue      += itemRevLocal / rate;
-      productMap[key].revenue_local += itemRevLocal;
+      const qty = parseInt(item.quantity) || 1;
+      productMap[key].units         += qty;
+      productMap[key].revenue       += parseFloat(item.price) * qty / rate;
+      productMap[key].revenue_local += parseFloat(item.price) * qty;
     }
 
-    // Attribute COGS to products via breakdown
     for (const { id, cost } of breakdown) {
-      const cfg = (storeConfig.products || []).find(p => p.id === id);
+      const cfg = products.find(p => p.id === id);
       if (!cfg) continue;
-      for (const item of (order.line_items || [])) {
-        if (matchProduct(item.title, cfg)) {
-          const key = item.title || 'Sin nombre';
-          if (productMap[key]) {
-            productMap[key].cogs       += cost / rate;
-            productMap[key].cogs_local += cost;
-          }
+      for (const item of order.line_items || []) {
+        if (matchProduct(item.title, cfg) && productMap[item.title]) {
+          productMap[item.title].cogs       += cost / rate;
+          productMap[item.title].cogs_local += cost;
         }
       }
     }
   }
 
-  // Meta Ads daily
   for (const ins of metaData) {
     const d = ins.date_start;
     if (!daily[d]) continue;
-
-    const spendUSD   = parseFloat(ins.spend || 0) / rate;
-    const spendLocal = parseFloat(ins.spend || 0);
-
-    daily[d].adSpend       += spendUSD;
-    daily[d].adSpend_local += spendLocal;
-    daily[d].impressions   += parseInt(ins.impressions || 0, 10);
-    daily[d].clicks        += parseInt(ins.clicks      || 0, 10);
-
+    daily[d].adSpend     += parseFloat(ins.spend || 0) / rate;
+    daily[d].impressions += parseInt(ins.impressions || 0);
+    daily[d].clicks      += parseInt(ins.clicks || 0);
     const purchase = (ins.actions || []).find(a =>
       a.action_type === 'purchase' ||
       a.action_type === 'offsite_conversion.fb_pixel_purchase'
@@ -404,7 +362,6 @@ function processStoreData(orders, metaData, storeConfig, start, end) {
     if (purchase) daily[d].purchases += parseFloat(purchase.value || 0);
   }
 
-  // Derive metrics per day
   const dailyArr = Object.values(daily).sort((a, b) => a.date.localeCompare(b.date));
   for (const day of dailyArr) {
     day.grossProfit = day.revenue - day.cogs;
@@ -412,430 +369,237 @@ function processStoreData(orders, metaData, storeConfig, start, end) {
     day.netMargin   = day.revenue > 0 ? (day.netProfit / day.revenue) * 100 : 0;
     day.roas        = day.adSpend > 0 ? day.revenue / day.adSpend : 0;
     day.ctr         = day.impressions > 0 ? (day.clicks / day.impressions) * 100 : 0;
-    day.cpa         = day.purchases > 0 ? day.adSpend / day.purchases : 0;
-    day.aov         = day.orders > 0 ? day.revenue / day.orders : 0;
   }
 
-  // Aggregate totals
   const totals = dailyArr.reduce((acc, d) => ({
-    revenue: acc.revenue + d.revenue,
+    revenue:       acc.revenue       + d.revenue,
     revenue_local: acc.revenue_local + d.revenue_local,
-    adSpend: acc.adSpend + d.adSpend,
-    adSpend_local: acc.adSpend_local + d.adSpend_local,
-    cogs: acc.cogs + d.cogs,
-    cogs_local: acc.cogs_local + d.cogs_local,
-    orders: acc.orders + d.orders,
-    impressions: acc.impressions + d.impressions,
-    clicks: acc.clicks + d.clicks,
-    purchases: acc.purchases + d.purchases,
-  }), {
-    revenue: 0, revenue_local: 0,
-    adSpend: 0, adSpend_local: 0,
-    cogs: 0, cogs_local: 0,
-    orders: 0, impressions: 0, clicks: 0, purchases: 0
-  });
+    cogs:          acc.cogs          + d.cogs,
+    cogs_local:    acc.cogs_local    + d.cogs_local,
+    adSpend:       acc.adSpend       + d.adSpend,
+    orders:        acc.orders        + d.orders,
+    impressions:   acc.impressions   + d.impressions,
+    clicks:        acc.clicks        + d.clicks,
+    purchases:     acc.purchases     + d.purchases,
+  }), { revenue: 0, revenue_local: 0, cogs: 0, cogs_local: 0,
+        adSpend: 0, orders: 0, impressions: 0, clicks: 0, purchases: 0 });
 
-  totals.grossProfit  = totals.revenue - totals.cogs;
-  totals.netProfit    = totals.grossProfit - totals.adSpend;
-  totals.netMargin    = totals.revenue > 0 ? (totals.netProfit / totals.revenue) * 100 : 0;
-  totals.roas         = totals.adSpend > 0 ? totals.revenue / totals.adSpend : 0;
-  totals.ctr          = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
-  totals.cpa          = totals.purchases > 0 ? totals.adSpend / totals.purchases : 0;
-  totals.aov          = totals.orders > 0 ? totals.revenue / totals.orders : 0;
+  totals.grossProfit = totals.revenue - totals.cogs;
+  totals.netProfit   = totals.grossProfit - totals.adSpend;
+  totals.netMargin   = totals.revenue > 0 ? (totals.netProfit / totals.revenue) * 100 : 0;
+  totals.roas        = totals.adSpend > 0 ? totals.revenue / totals.adSpend : 0;
+  totals.ctr         = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
+  totals.cpa         = totals.purchases > 0 ? totals.adSpend / totals.purchases : 0;
+  totals.aov         = totals.orders > 0 ? totals.revenue / totals.orders : 0;
 
-  // Product table
   const productTable = Object.values(productMap).map(p => ({
     ...p,
-    grossProfit: p.revenue - p.cogs,
+    grossProfit:       p.revenue - p.cogs,
     grossProfit_local: p.revenue_local - p.cogs_local,
-    margin: p.revenue > 0 ? ((p.revenue - p.cogs) / p.revenue) * 100 : 0
+    margin:            p.revenue > 0 ? ((p.revenue - p.cogs) / p.revenue) * 100 : 0
   })).sort((a, b) => b.revenue - a.revenue);
 
   return { daily: dailyArr, totals, productTable };
 }
 
 // ── GLOBAL AGGREGATION ────────────────────────────────────────────────────────
-
 async function buildGlobalData(range) {
-  const allResults = await Promise.all(CONFIG.stores.map(async (storeConfig) => {
-    const { start, end } = getDateRange(range, storeConfig.timezone || 'UTC');
+  const { stores } = loadStores();
+
+  const results = await Promise.all(stores.map(async store => {
+    const { start, end } = getDateRange(range, store.timezone || 'UTC');
+    refreshMetaTokenIfNeeded(store.id).catch(() => {});
     const [shopify, meta] = await Promise.all([
-      fetchShopifyOrders(storeConfig.id, start, end),
-      fetchMetaAds(storeConfig.id, start, end)
+      fetchShopifyOrders(store.id, start, end),
+      fetchMetaAds(store.id, start, end)
     ]);
-    const processed = processStoreData(shopify.orders || [], meta.data || [], storeConfig, start, end);
-    return { storeConfig, processed, start, end, errors: [shopify.error, meta.error].filter(Boolean) };
+    const processed = processData(shopify.orders || [], meta.data || [], store, start, end);
+    return { store, processed, errors: [shopify.error, meta.error].filter(Boolean) };
   }));
 
-  const globalDaily   = {};
-  const globalTotals  = { revenue: 0, adSpend: 0, cogs: 0, grossProfit: 0, netProfit: 0, orders: 0, impressions: 0, clicks: 0, purchases: 0 };
-  const globalProds   = {};
-  const allErrors     = [];
-  const breakEvens    = [];
+  const dailyMap  = {};
+  const SUM_KEYS  = ['revenue', 'cogs', 'adSpend', 'orders', 'impressions', 'clicks', 'purchases'];
+  const gTotals   = Object.fromEntries(SUM_KEYS.map(k => [k, 0]));
+  const prodMap   = {};
+  const errors    = [];
+  const breakEvens = [];
 
-  for (const { storeConfig, processed, errors } of allResults) {
-    allErrors.push(...errors);
-    breakEvens.push(storeConfig.break_even_roas || 2);
+  for (const { store, processed, errors: errs } of results) {
+    errors.push(...errs);
+    breakEvens.push(store.break_even_roas || 2);
 
     for (const day of processed.daily) {
-      if (!globalDaily[day.date]) {
-        globalDaily[day.date] = { date: day.date, revenue: 0, adSpend: 0, cogs: 0, orders: 0, impressions: 0, clicks: 0, purchases: 0 };
-      }
-      const g = globalDaily[day.date];
-      g.revenue     += day.revenue;
-      g.adSpend     += day.adSpend;
-      g.cogs        += day.cogs;
-      g.orders      += day.orders;
-      g.impressions += day.impressions;
-      g.clicks      += day.clicks;
-      g.purchases   += day.purchases;
+      if (!dailyMap[day.date])
+        dailyMap[day.date] = { date: day.date, ...Object.fromEntries(SUM_KEYS.map(k => [k, 0])) };
+      for (const k of SUM_KEYS) dailyMap[day.date][k] += day[k] || 0;
     }
 
-    const t = processed.totals;
-    globalTotals.revenue     += t.revenue;
-    globalTotals.adSpend     += t.adSpend;
-    globalTotals.cogs        += t.cogs;
-    globalTotals.grossProfit += t.grossProfit;
-    globalTotals.netProfit   += t.netProfit;
-    globalTotals.orders      += t.orders;
-    globalTotals.impressions += t.impressions;
-    globalTotals.clicks      += t.clicks;
-    globalTotals.purchases   += t.purchases;
+    for (const k of SUM_KEYS) gTotals[k] += processed.totals[k] || 0;
 
     for (const p of processed.productTable) {
-      if (!globalProds[p.name]) {
-        globalProds[p.name] = { name: p.name, sku: p.sku, units: 0, revenue: 0, cogs: 0, grossProfit: 0 };
-      }
-      const g = globalProds[p.name];
-      g.units       += p.units;
-      g.revenue     += p.revenue;
-      g.cogs        += p.cogs;
-      g.grossProfit += p.grossProfit;
+      if (!prodMap[p.name])
+        prodMap[p.name] = { name: p.name, sku: p.sku, units: 0, revenue: 0, cogs: 0, grossProfit: 0 };
+      prodMap[p.name].units       += p.units;
+      prodMap[p.name].revenue     += p.revenue;
+      prodMap[p.name].cogs        += p.cogs;
+      prodMap[p.name].grossProfit += p.grossProfit;
     }
   }
 
-  const dailyArr = Object.values(globalDaily).sort((a, b) => a.date.localeCompare(b.date));
+  const dailyArr = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
   for (const day of dailyArr) {
     day.grossProfit = day.revenue - day.cogs;
     day.netProfit   = day.grossProfit - day.adSpend;
     day.netMargin   = day.revenue > 0 ? (day.netProfit / day.revenue) * 100 : 0;
     day.roas        = day.adSpend > 0 ? day.revenue / day.adSpend : 0;
     day.ctr         = day.impressions > 0 ? (day.clicks / day.impressions) * 100 : 0;
-    day.cpa         = day.purchases > 0 ? day.adSpend / day.purchases : 0;
-    day.aov         = day.orders > 0 ? day.revenue / day.orders : 0;
   }
 
-  globalTotals.netMargin  = globalTotals.revenue > 0 ? (globalTotals.netProfit / globalTotals.revenue) * 100 : 0;
-  globalTotals.roas       = globalTotals.adSpend > 0 ? globalTotals.revenue / globalTotals.adSpend : 0;
-  globalTotals.ctr        = globalTotals.impressions > 0 ? (globalTotals.clicks / globalTotals.impressions) * 100 : 0;
-  globalTotals.cpa        = globalTotals.purchases > 0 ? globalTotals.adSpend / globalTotals.purchases : 0;
-  globalTotals.aov        = globalTotals.orders > 0 ? globalTotals.revenue / globalTotals.orders : 0;
+  gTotals.grossProfit = gTotals.revenue - gTotals.cogs;
+  gTotals.netProfit   = gTotals.grossProfit - gTotals.adSpend;
+  gTotals.netMargin   = gTotals.revenue > 0 ? (gTotals.netProfit / gTotals.revenue) * 100 : 0;
+  gTotals.roas        = gTotals.adSpend > 0 ? gTotals.revenue / gTotals.adSpend : 0;
+  gTotals.ctr         = gTotals.impressions > 0 ? (gTotals.clicks / gTotals.impressions) * 100 : 0;
+  gTotals.cpa         = gTotals.purchases > 0 ? gTotals.adSpend / gTotals.purchases : 0;
+  gTotals.aov         = gTotals.orders > 0 ? gTotals.revenue / gTotals.orders : 0;
 
-  const productTable = Object.values(globalProds).map(p => ({
-    ...p,
-    margin: p.revenue > 0 ? (p.grossProfit / p.revenue) * 100 : 0
-  })).sort((a, b) => b.revenue - a.revenue);
+  const productTable = Object.values(prodMap)
+    .map(p => ({ ...p, margin: p.revenue > 0 ? (p.grossProfit / p.revenue) * 100 : 0 }))
+    .sort((a, b) => b.revenue - a.revenue);
 
   return {
-    store: 'global',
-    currency: 'USD',
-    daily: dailyArr,
-    totals: globalTotals,
-    productTable,
-    break_even_roas: breakEvens.length ? (breakEvens.reduce((a, b) => a + b, 0) / breakEvens.length) : 2,
-    errors: allErrors
+    currency: 'USD', exchange_rate: 1,
+    break_even_roas: breakEvens.length ? breakEvens.reduce((a, b) => a + b, 0) / breakEvens.length : 2,
+    daily: dailyArr, totals: gTotals, productTable, errors
   };
 }
 
-// ── TOKEN STORE (in-memory, survives restarts via env vars) ──────────────────
-const tokenStore = {}; // shop → access_token
-
-function getShopifyToken(storeId) {
-  const store = env(storeId, 'SHOPIFY_STORE');
-  return tokenStore[store] || env(storeId, 'SHOPIFY_ACCESS_TOKEN');
-}
-
-// ── HTTP SERVER ───────────────────────────────────────────────────────────────
-
+// ── SERVER UTILITIES ──────────────────────────────────────────────────────────
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', chunk => body += chunk);
+    req.on('data', c => body += c);
     req.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
     req.on('error', reject);
   });
 }
 
+function json(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
+}
+
+// ── HTTP SERVER ───────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
-  const parsed   = new URL(req.url, 'http://localhost');
-  const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
-  const query    = Object.fromEntries(parsed.searchParams);
+  const u        = new URL(req.url, 'http://localhost');
+  const pathname = u.pathname.replace(/\/+$/, '') || '/';
+  const q        = Object.fromEntries(u.searchParams);
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   try {
-    // ── Dashboard ──
-    if (pathname === '/' || pathname === '/dashboard.html') {
-      const html = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8');
+
+    // ── Dashboard HTML ──────────────────────────────────────────────────────
+    if (pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
+      res.end(fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8'));
       return;
     }
 
-    // ── Store list ──
+    // ── GET /api/stores ─────────────────────────────────────────────────────
     if (pathname === '/api/stores') {
-      reloadConfig();
-      const list = CONFIG.stores.map(s => ({
-        id: s.id,
-        name: s.name,
-        currency: s.currency || 'USD',
-        break_even_roas: s.break_even_roas || 2,
-        timezone: s.timezone || 'UTC'
-      }));
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ stores: list }));
-      return;
+      const { stores } = loadStores();
+      return json(res, 200, {
+        stores: stores.map(s => ({
+          id: s.id, name: s.name,
+          currency: s.currency || 'USD',
+          break_even_roas: s.break_even_roas || 2,
+          timezone: s.timezone || 'UTC'
+        }))
+      });
     }
 
-    // ── Data ──
+    // ── GET /api/data ───────────────────────────────────────────────────────
     if (pathname === '/api/data') {
-      reloadConfig();
-      const storeId = query.store || 'global';
-      const range   = query.range  || 'today';
+      const storeId = q.store || 'global';
+      const range   = q.range || 'today';
 
-      if (storeId === 'global') {
-        const data = await buildGlobalData(range);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(data));
-        return;
-      }
+      if (storeId === 'global') return json(res, 200, await buildGlobalData(range));
 
-      const storeConfig = CONFIG.stores.find(s => s.id === storeId);
-      if (!storeConfig) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Tienda "${storeId}" no encontrada en stores.json` }));
-        return;
-      }
+      const { stores } = loadStores();
+      const store = stores.find(s => s.id === storeId);
+      if (!store) return json(res, 404, { error: `Tienda "${storeId}" no encontrada en stores.json` });
 
-      const { start, end } = getDateRange(range, storeConfig.timezone || 'UTC');
-
-      // Kick off token refresh in background
-      tryRefreshMetaToken(storeId).catch(() => {});
+      const { start, end } = getDateRange(range, store.timezone || 'UTC');
+      refreshMetaTokenIfNeeded(storeId).catch(() => {});
 
       const [shopify, meta] = await Promise.all([
         fetchShopifyOrders(storeId, start, end),
         fetchMetaAds(storeId, start, end)
       ]);
 
-      const processed = processStoreData(
-        shopify.orders || [],
-        meta.data      || [],
-        storeConfig,
-        start,
-        end
-      );
+      const processed = processData(shopify.orders || [], meta.data || [], store, start, end);
 
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        store: storeId,
-        name: storeConfig.name,
-        currency: storeConfig.currency || 'USD',
-        exchange_rate: storeConfig.exchange_rate || 1,
-        break_even_roas: storeConfig.break_even_roas || 2,
-        start,
-        end,
-        daily:        processed.daily,
-        totals:       processed.totals,
-        productTable: processed.productTable,
-        errors:       [shopify.error, meta.error].filter(Boolean)
-      }));
-      return;
+      return json(res, 200, {
+        store: storeId, name: store.name,
+        currency: store.currency || 'USD',
+        exchange_rate: store.exchange_rate || 1,
+        break_even_roas: store.break_even_roas || 2,
+        start, end,
+        ...processed,
+        errors: [shopify.error, meta.error].filter(Boolean)
+      });
     }
 
-    // ── Connect Store (manual token) ──
+    // ── POST /api/connect-store ─────────────────────────────────────────────
     if (pathname === '/api/connect-store' && req.method === 'POST') {
       const { storeId, shopDomain, accessToken } = await readBody(req);
-      if (!storeId || !shopDomain || !accessToken) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Faltan datos: storeId, shopDomain, accessToken' }));
-        return;
-      }
-      const shopName = shopDomain.replace('.myshopify.com', '').replace(/\s/g, '');
-      let validateRes;
+      if (!storeId || !shopDomain || !accessToken)
+        return json(res, 400, { error: 'Faltan: storeId, shopDomain, accessToken' });
+
+      const shop = shopDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').replace('.myshopify.com', '');
+      let r;
       try {
-        validateRes = await apiRequest({
-          hostname: `${shopName}.myshopify.com`,
-          path: '/admin/api/2024-01/shop.json',
-          method: 'GET',
-          headers: { 'X-Shopify-Access-Token': accessToken }
-        });
+        r = await apiGet(`https://${shop}.myshopify.com/admin/api/2024-01/shop.json`,
+                         { 'X-Shopify-Access-Token': accessToken });
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'No se pudo conectar con Shopify: ' + e.message }));
-        return;
+        return json(res, 500, { error: `No se pudo conectar: ${e.message}` });
       }
-      if (validateRes.status !== 200 || !validateRes.body.shop) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Token inválido o tienda no encontrada (HTTP ' + validateRes.status + ')' }));
-        return;
-      }
-      const shop = validateRes.body.shop;
-      tokenStore[shopName] = accessToken;
-      const prefix = storeId.toUpperCase().replace(/-/g, '_').replace(/\./g, '_');
-      console.log(`\n✅ TIENDA CONECTADA: ${shop.name} (${shopName})`);
-      console.log(`   Railway → Variables:`);
-      console.log(`   ${prefix}_SHOPIFY_STORE = ${shopName}`);
-      console.log(`   ${prefix}_SHOPIFY_ACCESS_TOKEN = ${accessToken}\n`);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
+
+      if (r.status !== 200 || !r.body.shop)
+        return json(res, 400, { error: `Token inválido (HTTP ${r.status})` });
+
+      const prefix = storeId.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      console.log(`\n✅ SHOPIFY CONECTADO: ${r.body.shop.name}`);
+      console.log(`   ${prefix}_SHOPIFY_STORE=${shop}`);
+      console.log(`   ${prefix}_SHOPIFY_ACCESS_TOKEN=${accessToken}\n`);
+
+      return json(res, 200, {
         success: true,
-        shopName: shop.name,
-        currency: shop.currency,
+        shopName: r.body.shop.name,
+        currency: r.body.shop.currency,
         railwayVars: {
-          [`${prefix}_SHOPIFY_STORE`]: shopName,
+          [`${prefix}_SHOPIFY_STORE`]: shop,
           [`${prefix}_SHOPIFY_ACCESS_TOKEN`]: accessToken
         }
-      }));
-      return;
-    }
-
-    // ── Token Exchange (Dev Dashboard apps) ──
-    if (pathname === '/auth/token-exchange' && req.method === 'POST') {
-      const { shop, idToken } = await readBody(req);
-
-      if (!shop || !idToken) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Faltan shop o idToken' }));
-        return;
-      }
-
-      const clientId     = process.env.SHOPIFY_CLIENT_ID     || '';
-      const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || '';
-
-      const exchangeBody = JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-        subject_token: idToken,
-        subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
-        requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token'
       });
-
-      let tokenRes;
-      try {
-        tokenRes = await apiRequest({
-          hostname: shop,
-          path: '/admin/oauth/access_token',
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(exchangeBody) }
-        }, exchangeBody);
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-        return;
-      }
-
-      const token = tokenRes.body.access_token;
-      if (!token) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Token exchange fallido', details: tokenRes.body }));
-        return;
-      }
-
-      const storeName = shop.replace('.myshopify.com', '');
-      tokenStore[storeName] = token;
-
-      console.log(`\n✅ TOKEN SHOPIFY OBTENIDO para ${shop}`);
-      console.log(`   Agrega en Railway → Variables:`);
-      console.log(`   TIENDA1_SHOPIFY_STORE = ${storeName}`);
-      console.log(`   TIENDA1_SHOPIFY_ACCESS_TOKEN = ${token}\n`);
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, shop: storeName, token }));
-      return;
     }
 
-    // ── Shopify OAuth: inicio ──
-    if (pathname === '/auth/shopify') {
-      const shop      = (query.shop || 'bu18yq-dk').replace('.myshopify.com', '');
-      const clientId  = process.env.SHOPIFY_CLIENT_ID || '';
-      const redirect  = `https://${req.headers.host}/auth/callback`;
-      const state     = Math.random().toString(36).slice(2);
-      const scopes    = 'read_orders,read_products';
-      const authUrl   = `https://${shop}.myshopify.com/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirect)}&state=${state}`;
-      res.writeHead(302, { Location: authUrl });
-      res.end();
-      return;
-    }
+    res.writeHead(404); res.end('Not found');
 
-    // ── Shopify OAuth: callback ──
-    if (pathname === '/auth/callback') {
-      const { code, shop } = query;
-      const clientId     = process.env.SHOPIFY_CLIENT_ID     || '';
-      const clientSecret = process.env.SHOPIFY_CLIENT_SECRET || '';
-
-      if (!code || !shop) {
-        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<h2>Error: faltan parámetros code o shop</h2>');
-        return;
-      }
-
-      const body = JSON.stringify({ client_id: clientId, client_secret: clientSecret, code });
-      let tokenRes;
-      try {
-        tokenRes = await apiRequest({
-          hostname: shop,
-          path: '/admin/oauth/access_token',
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-        }, body);
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`<h2>Error al obtener token: ${e.message}</h2>`);
-        return;
-      }
-
-      const token = tokenRes.body.access_token;
-      if (!token) {
-        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`<h2>Error: ${JSON.stringify(tokenRes.body)}</h2>`);
-        return;
-      }
-
-      const storeName = shop.replace('.myshopify.com', '');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(`<!DOCTYPE html><html><head><meta charset=utf-8>
-        <style>body{font-family:sans-serif;max-width:700px;margin:60px auto;padding:20px;background:#0d1117;color:#e6edf3}
-        h2{color:#3fb950}code{background:#21262d;padding:12px 16px;display:block;border-radius:8px;font-size:15px;word-break:break-all;margin:16px 0;color:#79c0ff}
-        p{color:#8b949e}.label{color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:1px}</style></head>
-        <body>
-        <h2>Token obtenido con éxito</h2>
-        <p class=label>Tienda</p><code>${storeName}.myshopify.com</code>
-        <p class=label>Variable de entorno que necesitás cargar en Railway</p>
-        <code>TIENDA1_SHOPIFY_STORE = ${storeName}</code>
-        <code>TIENDA1_SHOPIFY_ACCESS_TOKEN = ${token}</code>
-        <p>Copiá estos dos valores y cargalos en Railway → Variables. Luego avisame.</p>
-        </body></html>`);
-      return;
-    }
-
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
-
-  } catch (err) {
-    console.error('[ERROR]', err);
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: err.message }));
+  } catch (e) {
+    console.error('[ERROR]', e.message);
+    json(res, 500, { error: e.message });
   }
 });
 
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`\n╔══════════════════════════════════════════╗`);
-  console.log(`║   Profit Calculator  →  http://localhost:${PORT} ║`);
-  console.log(`╚══════════════════════════════════════════╝`);
-  console.log(`Tiendas: ${CONFIG.stores.map(s => s.name).join(' | ')}\n`);
+  const { stores } = loadStores();
+  console.log(`\n╔═══════════════════════════════════════════╗`);
+  console.log(`║  Profit Calculator → http://localhost:${PORT}  ║`);
+  console.log(`╚═══════════════════════════════════════════╝`);
+  console.log(`Tiendas: ${stores.map(s => s.name).join(' · ')}\n`);
 });

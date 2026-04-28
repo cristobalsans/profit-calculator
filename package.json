@@ -1,12 +1,7 @@
 {
   "name": "profit-calculator",
-  "version": "1.0.0",
-  "description": "Multi-store Profit Calculator: Shopify + Meta Ads",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "version": "2.0.0",
+  "description": "Multi-store Shopify + Meta Ads profit dashboard",
+  "engines": { "node": ">=18" },
+  "scripts": { "start": "node server.js" }
 }
