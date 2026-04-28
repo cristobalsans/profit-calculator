@@ -186,8 +186,8 @@ async function fetchShopifyOrders(storeId, start, end) {
 // ── META ADS ─────────────────────────────────────────────────────────────────
 async function refreshMetaTokenIfNeeded(storeId) {
   const token  = getMetaToken(storeId);
-  const appId  = env(storeId, 'META_APP_ID');
-  const secret = env(storeId, 'META_APP_SECRET');
+  const appId  = env(storeId, 'META_APP_ID') || (process.env['META_APP_ID'] || '').trim();
+  const secret = env(storeId, 'META_APP_SECRET') || (process.env['META_APP_SECRET'] || '').trim();
   if (!token || !appId || !secret) return;
 
   try {
